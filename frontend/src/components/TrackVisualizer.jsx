@@ -1,6 +1,11 @@
 import React, { useRef, useEffect } from 'react';
 import { KEYS_88 } from '../utils/keyboardLayout';
 
+// Pre-compute lookup maps for O(1) performance
+const KEYS_MAP = new Map(KEYS_88.map(k => [k.midi, k]));
+const BLACK_KEYS_SET = new Set(KEYS_88.filter(k => k.isBlack).map(k => k.midi));
+const isMidiBlack = (midi) => BLACK_KEYS_SET.has(midi);
+
 const getNoteName = (midi) => {
   const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const octave = Math.floor(midi / 12) - 1;
@@ -53,14 +58,13 @@ const hexToRgba = (hex, alpha) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+// Optimized: Removed heavy shadowBlur to prevent CPU rendering bottleneck on large numbers of particles
 const drawDiamond = (ctx, x, y, size, angle, color, alpha) => {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
   ctx.fillStyle = color;
   ctx.globalAlpha = alpha;
-  ctx.shadowBlur = 6;
-  ctx.shadowColor = color;
   ctx.beginPath();
   ctx.moveTo(0, -size);
   ctx.lineTo(size * 0.7, 0);
@@ -77,8 +81,6 @@ const drawCrossStar = (ctx, x, y, size, angle, color, alpha) => {
   ctx.rotate(angle);
   ctx.fillStyle = color;
   ctx.globalAlpha = alpha;
-  ctx.shadowBlur = 8;
-  ctx.shadowColor = color;
   ctx.beginPath();
   ctx.moveTo(0, -size * 1.5);
   ctx.quadraticCurveTo(0, 0, size * 1.5, 0);
@@ -89,7 +91,6 @@ const drawCrossStar = (ctx, x, y, size, angle, color, alpha) => {
   ctx.fill();
   
   ctx.fillStyle = '#ffffff';
-  ctx.shadowBlur = 0;
   ctx.beginPath();
   ctx.arc(0, 0, size * 0.45, 0, Math.PI * 2);
   ctx.fill();
@@ -192,12 +193,6 @@ export default function TrackVisualizer({
 
       const noteBarsOpacity = (effectsConfig && effectsConfig.noteBarsOpacity !== undefined) ? effectsConfig.noteBarsOpacity : 1.0;
 
-      // Helper to check if a midi note is black key
-      const isMidiBlack = (midi) => {
-        const key = KEYS_88.find(k => k.midi === midi);
-        return key ? key.isBlack : false;
-      };
-
       const drawPlaybackNote = (note, T) => {
         const t_start = note.time;
         const t_end = note.time + note.duration;
@@ -205,7 +200,7 @@ export default function TrackVisualizer({
         if (t_end >= T && t_start <= T + W) {
           if (!activeTracks.includes(note.trackId)) return;
 
-          const key = KEYS_88.find(k => k.midi === note.midi);
+          const key = KEYS_MAP.get(note.midi);
           if (!key) return;
 
           const x = (key.left / 100) * w;
@@ -307,7 +302,7 @@ export default function TrackVisualizer({
 
         // Check if live note is within the float window W
         if (note.endTime === null || now - note.endTime <= W) {
-          const key = KEYS_88.find(k => k.midi === note.midi);
+          const key = KEYS_MAP.get(note.midi);
           if (!key) return;
 
           const x = (key.left / 100) * w;
@@ -489,21 +484,25 @@ export default function TrackVisualizer({
 
       const W = windowTime;
 
-      // 2. Render falling playback notes (flowing downwards)
+      // 2. Render falling playback notes (flowing downwards) - Optimized with early breaks
       if (playbackNotes && playbackNotes.length > 0) {
         const T = currentTimeRef.current || 0;
         
         // Pass 1: Draw white key playback notes
-        playbackNotes.forEach((note) => {
-          if (isMidiBlack(note.midi)) return;
+        for (let i = 0; i < playbackNotes.length; i++) {
+          const note = playbackNotes[i];
+          if (note.time > T + W) break; // Early break!
+          if (isMidiBlack(note.midi)) continue;
           drawPlaybackNote(note, T);
-        });
+        }
 
         // Pass 2: Draw black key playback notes (on top of white key notes)
-        playbackNotes.forEach((note) => {
-          if (!isMidiBlack(note.midi)) return;
+        for (let i = 0; i < playbackNotes.length; i++) {
+          const note = playbackNotes[i];
+          if (note.time > T + W) break; // Early break!
+          if (!isMidiBlack(note.midi)) continue;
           drawPlaybackNote(note, T);
-        });
+        }
       }
 
       // 3. Render live playing notes (flowing upwards)
@@ -537,10 +536,12 @@ export default function TrackVisualizer({
         // Tracking active notes
         const activeMidis = [];
 
-        // Check active playback notes
+        // Check active playback notes - Optimized with early break
         if (playbackNotes && playbackNotes.length > 0) {
           const T = currentTimeRef.current || 0;
-          playbackNotes.forEach(note => {
+          for (let i = 0; i < playbackNotes.length; i++) {
+            const note = playbackNotes[i];
+            if (note.time > T + W) break; // Early break!
             const t_start = note.time;
             const t_end = note.time + note.duration;
             if (t_end >= T && t_start <= T + W && activeTracks.includes(note.trackId)) {
@@ -548,7 +549,7 @@ export default function TrackVisualizer({
                 activeMidis.push(note.midi);
               }
             }
-          });
+          }
         }
 
         // Check active live notes
@@ -563,15 +564,21 @@ export default function TrackVisualizer({
         const uniqueActiveMidis = [...new Set(activeMidis)];
         const prevActiveMidis = prevActiveMidisRef.current || [];
 
-        // Color helper
+        // Color helper - optimized with early break
         const getActiveNoteColor = (midi) => {
           if (customColorsEnabled && activeCustomColor) {
             return activeCustomColor;
           }
           const T = currentTimeRef.current || 0;
-          const activePlaybackNote = playbackNotes.find(n => 
-            n.midi === midi && T >= n.time && T <= n.time + n.duration && activeTracks.includes(n.trackId)
-          );
+          let activePlaybackNote = null;
+          for (let i = 0; i < playbackNotes.length; i++) {
+            const n = playbackNotes[i];
+            if (n.time > T) break; // Early break!
+            if (n.midi === midi && T >= n.time && T <= n.time + n.duration && activeTracks.includes(n.trackId)) {
+              activePlaybackNote = n;
+              break;
+            }
+          }
           if (activePlaybackNote) {
             return getTrackColor(activePlaybackNote.trackId);
           }
@@ -579,7 +586,7 @@ export default function TrackVisualizer({
         };
 
         uniqueActiveMidis.forEach(midi => {
-          const key = KEYS_88.find(k => k.midi === midi);
+          const key = KEYS_MAP.get(midi);
           if (!key) return;
 
           const x = (key.left / 100) * w;
@@ -838,8 +845,13 @@ export default function TrackVisualizer({
           particlesRef.current.push(...newSpawned);
         }
 
-        // Cleanup
-        particlesRef.current = particlesRef.current.filter(p => p.life > 0 && p.y > -50);
+        // Cleanup and Cap (limit maximum active particles to prevent performance degradation)
+        let filtered = particlesRef.current.filter(p => p.life > 0 && p.y > -50);
+        const MAX_PARTICLES = 600;
+        if (filtered.length > MAX_PARTICLES) {
+          filtered = filtered.slice(filtered.length - MAX_PARTICLES);
+        }
+        particlesRef.current = filtered;
       } else {
         particlesRef.current = [];
         prevActiveMidisRef.current = [];

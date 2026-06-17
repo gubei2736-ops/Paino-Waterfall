@@ -44,6 +44,13 @@ const MIDI_TO_KEY_LABEL = {
   75: 'P'
 };
 
+const areArraysEqual = (a, b) => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
 
 export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiScore, focusMode }) {
   const [activeNotes, setActiveNotes] = useState([]); // User manual played active MIDI numbers
@@ -281,6 +288,7 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
   const lastTimeRef = useRef(0);
   const scheduledNotes = useRef(new Set());
   const animationFrameRef = useRef(null);
+  const playbackActiveNotesRef = useRef([]);
 
   // Synchronized refs to avoid closure stale state in requestAnimationFrame loop
   const isPlayingRef = useRef(isPlaying);
@@ -482,13 +490,16 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
       timeTextRef.current.textContent = `${formatTime(nextTime)} / ${formatTime(totalDur)}`;
     }
 
-    // Schedule audio notes (lookahead window = 200ms)
+    // Schedule audio notes (lookahead window = 200ms) - Optimized with early break
     const lookAhead = 0.2;
     const T = currentTimeRef.current;
     const synth = synthRef.current;
 
-    notesRef.current.forEach((note) => {
-      if (note.time >= T && note.time < T + lookAhead) {
+    for (let i = 0; i < notesRef.current.length; i++) {
+      const note = notesRef.current[i];
+      if (note.time >= T + lookAhead) break; // Early break! Any subsequent notes start beyond lookAhead.
+      
+      if (note.time >= T) {
         if (!scheduledNotes.current.has(note.id)) {
           if (activeTracksRef.current.includes(note.trackId)) {
             scheduledNotes.current.add(note.id);
@@ -500,14 +511,25 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
           }
         }
       }
-    });
+    }
 
-    // Detect currently sounding notes for piano keys visual feedback
-    const activePlayback = notesRef.current
-      .filter(n => T >= n.time && T <= n.time + n.duration && activeTracksRef.current.includes(n.trackId))
-      .map(n => n.midi);
+    // Detect currently sounding notes for piano keys visual feedback - Optimized with early break
+    const activePlayback = [];
+    for (let i = 0; i < notesRef.current.length; i++) {
+      const n = notesRef.current[i];
+      if (n.time > T) break; // Early break! No future note can be active now.
+      if (T >= n.time && T <= n.time + n.duration && activeTracksRef.current.includes(n.trackId)) {
+        activePlayback.push(n.midi);
+      }
+    }
 
-    setPlaybackActiveNotes(activePlayback);
+    activePlayback.sort((a, b) => a - b);
+
+    // Only update state and trigger React re-render if active notes list actually changed!
+    if (!areArraysEqual(activePlayback, playbackActiveNotesRef.current)) {
+      playbackActiveNotesRef.current = activePlayback;
+      setPlaybackActiveNotes(activePlayback);
+    }
 
     animationFrameRef.current = requestAnimationFrame(playLoop);
   };
@@ -535,6 +557,7 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
     cancelAnimationFrame(animationFrameRef.current);
     currentTimeRef.current = 0;
     scheduledNotes.current.clear();
+    playbackActiveNotesRef.current = [];
     setPlaybackActiveNotes([]);
     synthRef.current.stopAll();
 
@@ -557,9 +580,16 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
     }
 
     const T = seekTime;
-    const activePlayback = notesRef.current
-      .filter(n => T >= n.time && T <= n.time + n.duration && activeTracksRef.current.includes(n.trackId))
-      .map(n => n.midi);
+    const activePlayback = [];
+    for (let i = 0; i < notesRef.current.length; i++) {
+      const n = notesRef.current[i];
+      if (n.time > T) break; // Early break!
+      if (T >= n.time && T <= n.time + n.duration && activeTracksRef.current.includes(n.trackId)) {
+        activePlayback.push(n.midi);
+      }
+    }
+    activePlayback.sort((a, b) => a - b);
+    playbackActiveNotesRef.current = activePlayback;
     setPlaybackActiveNotes(activePlayback);
   };
 
