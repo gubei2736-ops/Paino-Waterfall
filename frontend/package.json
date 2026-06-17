@@ -12,6 +12,7 @@
   "dependencies": {
     "@tonaljs/chord-detect": "^4.9.1",
     "@tonaljs/tonal": "^4.10.0",
+    "@tonejs/midi": "^2.0.28",
     "lucide-react": "^1.18.0",
     "opensheetmusicdisplay": "^1.9.9",
     "react": "^19.2.6",

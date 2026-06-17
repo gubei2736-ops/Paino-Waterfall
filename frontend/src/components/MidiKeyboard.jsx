@@ -45,7 +45,7 @@ const MIDI_TO_KEY_LABEL = {
 };
 
 
-export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiScore }) {
+export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiScore, focusMode }) {
   const [activeNotes, setActiveNotes] = useState([]); // User manual played active MIDI numbers
   const [playbackActiveNotes, setPlaybackActiveNotes] = useState([]); // Auto-played MIDI numbers from score
   const [liveNotes, setLiveNotes] = useState([]); // Live notes stream history for real-time visualizer
@@ -84,6 +84,32 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
       localStorage.setItem('waterfall_show_note_names', JSON.stringify(showNoteNames));
     } catch (e) {}
   }, [showNoteNames]);
+
+  const [effectsConfig, setEffectsConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('waterfall_effects_config');
+      const parsed = saved ? JSON.parse(saved) : {};
+      return {
+        bubbles: true,
+        waterCurrent: true,
+        loveLetter: true,
+        showNoteBars: true,
+        noteBarsOpacity: 1.0,
+        ...parsed
+      };
+    } catch (e) {
+      return { bubbles: true, waterCurrent: true, loveLetter: true, showNoteBars: true, noteBarsOpacity: 1.0 };
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('waterfall_effects_config', JSON.stringify(effectsConfig));
+    } catch (e) {}
+  }, [effectsConfig]);
+
+  const [showEffectsPicker, setShowEffectsPicker] = useState(false);
+  const effectsPopoverRef = useRef(null);
 
   const [customColorsEnabled, setCustomColorsEnabled] = useState(() => {
     try {
@@ -231,6 +257,9 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
     const handleClickOutside = (e) => {
       if (colorPopoverRef.current && !colorPopoverRef.current.contains(e.target)) {
         setShowColorPicker(false);
+      }
+      if (effectsPopoverRef.current && !effectsPopoverRef.current.contains(e.target)) {
+        setShowEffectsPicker(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -390,17 +419,22 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
     };
   }, [isBinding]);
 
-  // 1. Handle score XML updates
+  // 1. Handle score updates (supports MusicXML and MIDI JSON structures)
   useEffect(() => {
     handleStop();
     if (xmlContent) {
       try {
-        const parsed = parseMusicXml(xmlContent);
+        let parsed;
+        if (typeof xmlContent === 'string' && xmlContent.trim().startsWith('{')) {
+          parsed = JSON.parse(xmlContent);
+        } else {
+          parsed = parseMusicXml(xmlContent);
+        }
         setParsedScore(parsed);
         notesRef.current = parsed.notes;
         setActiveTracks(parsed.tracks.map(t => t.id));
       } catch (err) {
-        console.error('Failed to parse XML content for playback:', err);
+        console.error('Failed to parse score content for playback:', err);
         setParsedScore(null);
         notesRef.current = [];
       }
@@ -734,7 +768,8 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
   return (
     <div className="midi-keyboard-full-container">
       {/* Top MIDI details and Chord Detection (Row 1) */}
-      <div className="midi-status-bar">
+      {!focusMode && (
+        <div className="midi-status-bar">
         <div className="devices-list" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span className="status-indicator-dot" style={{ backgroundColor: midiDevices.length > 0 ? '#10b981' : '#f59e0b' }}></span>
@@ -826,6 +861,117 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
           >
             {showNoteNames ? '瀑布流音名: 开启' : '瀑布流音名: 关闭'}
           </button>
+
+          {/* Visual Effects Settings Popover Container */}
+          <div className="effects-settings-container" style={{ position: 'relative' }} ref={effectsPopoverRef}>
+            <button
+              className={`btn btn-sm ${Object.values(effectsConfig).some(Boolean) ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setShowEffectsPicker(!showEffectsPicker)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '20px',
+                fontSize: '11px',
+                fontWeight: '600',
+                backgroundColor: Object.values(effectsConfig).some(Boolean) ? 'var(--accent-color)' : 'var(--bg-input)',
+                color: Object.values(effectsConfig).some(Boolean) ? '#ffffff' : 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+                boxShadow: Object.values(effectsConfig).some(Boolean) ? '0 0 10px rgba(99, 102, 241, 0.3)' : 'none',
+                transition: 'all var(--transition-normal)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <span>✨ 特效设置</span>
+            </button>
+
+            {showEffectsPicker && (
+              <div 
+                className="effects-settings-popover"
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: '0',
+                  marginTop: '8px',
+                  width: '220px',
+                  backgroundColor: 'rgba(20, 24, 33, 0.95)',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                  padding: '12px',
+                  zIndex: 100,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', paddingBottom: '4px', borderBottom: '1px solid var(--border-color)' }}>
+                  选择开启的特效
+                </div>
+                
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
+                  <input 
+                    type="checkbox"
+                    checked={!!effectsConfig.bubbles}
+                    onChange={() => setEffectsConfig(prev => ({ ...prev, bubbles: !prev.bubbles }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>气泡上升 (Bubbles)</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
+                  <input 
+                    type="checkbox"
+                    checked={!!effectsConfig.waterCurrent}
+                    onChange={() => setEffectsConfig(prev => ({ ...prev, waterCurrent: !prev.waterCurrent }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>水中气流 (Water Current)</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
+                  <input 
+                    type="checkbox"
+                    checked={!!effectsConfig.loveLetter}
+                    onChange={() => setEffectsConfig(prev => ({ ...prev, loveLetter: !prev.loveLetter }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>情书 (Love Letter)</span>
+                </label>
+
+                <div style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', paddingBottom: '4px', borderBottom: '1px solid var(--border-color)', marginTop: '8px', marginBottom: '6px' }}>
+                  瀑布流长条设置
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px 0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    <span>长条不透明度:</span>
+                    <span style={{ color: 'var(--accent-color)', fontWeight: 'bold' }}>{Math.round((effectsConfig.noteBarsOpacity !== undefined ? effectsConfig.noteBarsOpacity : 1.0) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min={0.0}
+                    max={1.0}
+                    step={0.05}
+                    value={effectsConfig.noteBarsOpacity !== undefined ? effectsConfig.noteBarsOpacity : 1.0}
+                    onChange={(e) => {
+                      const opacityVal = parseFloat(e.target.value);
+                      setEffectsConfig(prev => ({ ...prev, noteBarsOpacity: opacityVal }));
+                    }}
+                    className="control-range-input"
+                    style={{
+                      width: '100%',
+                      height: '4px',
+                      borderRadius: '2px',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Custom Color Settings Popover Container */}
           <div className="color-settings-container" style={{ position: 'relative' }} ref={colorPopoverRef}>
@@ -1140,8 +1286,10 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
           <button className="btn btn-secondary btn-sm" onClick={clearKeyboard}>清除</button>
         )}
       </div>
+      )}
 
-      <div className="chord-display-hero">
+      {!focusMode && (
+        <div className="chord-display-hero">
         <div className="chord-name-large">
           {detectedChord ? detectedChord : '弹奏或播放以检测和弦'}
         </div>
@@ -1157,9 +1305,10 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
           )}
         </div>
       </div>
+      )}
 
       {/* Playback Controls and Track List (Row 2, moved above the canvas) */}
-      {parsedScore ? (
+      {!focusMode && parsedScore ? (
         <div className="playback-control-panel">
           <div className="timeline-container">
             <input 
@@ -1272,6 +1421,7 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
           customColor4Enabled={customColor4Enabled}
           customColor5Enabled={customColor5Enabled}
           customColorDuration={customColorDuration}
+          effectsConfig={effectsConfig}
         />
       </div>
 

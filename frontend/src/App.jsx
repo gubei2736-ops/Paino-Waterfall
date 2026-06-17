@@ -1,23 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Music, 
   UploadCloud, 
   ZoomIn, 
   ZoomOut, 
   Info,
-  Download,
   Menu,
-  ChevronLeft
+  ChevronLeft,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import ScoreViewer from './components/ScoreViewer';
 import MidiKeyboard from './components/MidiKeyboard';
 import soundSynth from './utils/soundSynth';
+import { parseMidiFile } from './utils/midiParser';
 
 export default function App() {
+  // Score slot 1 (上)
   const [xmlContent, setXmlContent] = useState('');
-  const [activeScoreTitle, setActiveScoreTitle] = useState('未选择乐谱');
   const [pdfUrl, setPdfUrl] = useState('');
   const [isImageFile, setIsImageFile] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState(null);
+
+  // Score slot 2 (下)
+  const [xmlContent2, setXmlContent2] = useState('');
+  const [pdfUrl2, setPdfUrl2] = useState('');
+  const [isImageFile2, setIsImageFile2] = useState(false);
+  const [uploadedFile2, setUploadedFile2] = useState(null);
+
+  const [activeScoreTitle, setActiveScoreTitle] = useState('未选择乐谱');
   const [soundSourceType, setSoundSourceType] = useState('默认钢琴音源 (Salamander)');
   const [soundfontsList, setSoundfontsList] = useState({});
   const [selectedSoundfont, setSelectedSoundfont] = useState('default');
@@ -43,24 +54,81 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      if (pdfUrl) {
-        URL.revokeObjectURL(pdfUrl);
-      }
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     };
   }, [pdfUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (pdfUrl2) URL.revokeObjectURL(pdfUrl2);
+    };
+  }, [pdfUrl2]);
   
   // Scoring parameters
   const [annotationMode, setAnnotationMode] = useState('notes'); // 'none', 'notes'
   const [midiScoreZoom, setMidiScoreZoom] = useState(0.7); // default 0.7 for split panel
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showMidiScore, setShowMidiScore] = useState(true);
+  const [focusMode, setFocusMode] = useState(false);
+
+  // Resizable split pane
+  const [scoreWidthPercent, setScoreWidthPercent] = useState(48);
+  const workspaceRef = useRef(null);
+  const scoreContainerRef = useRef(null);
+  const isDraggingRef = useRef(false);
+
+  const handleSplitterMouseDown = useCallback((e) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    // Disable pointer events on heavy content during drag to prevent iframe/canvas stealing events
+    if (scoreContainerRef.current) {
+      scoreContainerRef.current.style.pointerEvents = 'none';
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isDraggingRef.current || !workspaceRef.current || !scoreContainerRef.current) return;
+      const rect = workspaceRef.current.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const pct = Math.max(20, Math.min(80, (offsetX / rect.width) * 100));
+      // Direct DOM manipulation — no React re-render during drag
+      scoreContainerRef.current.style.width = pct + '%';
+    };
+    const handleMouseUp = (e) => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (scoreContainerRef.current) {
+        scoreContainerRef.current.style.pointerEvents = '';
+        // Read final width and commit to React state once
+        const finalWidth = parseFloat(scoreContainerRef.current.style.width);
+        if (!isNaN(finalWidth)) {
+          setScoreWidthPercent(finalWidth);
+        }
+      }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
   
   // File upload state
-  const [uploadedFile, setUploadedFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [backendProcessing, setBackendProcessing] = useState(false);
   const [omrStage, setOmrStage] = useState('等待处理...');
   const [omrProgress, setOmrProgress] = useState(0);
+
+  // Derived flags
+  const hasScore1 = !!(xmlContent || pdfUrl);
+  const hasScore2 = !!(xmlContent2 || pdfUrl2);
+  const hasAnyScore = hasScore1 || hasScore2;
 
   // Drag-and-drop / file handlers
   const handleDragOver = (e) => {
@@ -89,31 +157,73 @@ export default function App() {
   const processFile = async (file) => {
     const lowerName = file.name.toLowerCase();
     const isXml = lowerName.endsWith('.musicxml') || lowerName.endsWith('.xml');
+    const isMidi = lowerName.endsWith('.mid') || lowerName.endsWith('.midi');
     const isPdf = lowerName.endsWith('.pdf');
     const isImage = /\.(png|jpe?g|bmp|webp)$/.test(lowerName);
 
-    if (!isXml && !isPdf && !isImage) {
-      alert('只支持 MusicXML (.musicxml / .xml)、PDF (.pdf) 或图片 (.png / .jpg / .jpeg / .bmp / .webp) 文件！');
+    if (!isXml && !isMidi && !isPdf && !isImage) {
+      alert('只支持 MIDI (.mid / .midi)、MusicXML (.musicxml / .xml)、PDF (.pdf) 或图片 (.png / .jpg / .jpeg / .bmp / .webp) 文件！');
       return;
     }
 
-    setUploadedFile(file);
-    setActiveScoreTitle(file.name);
+    // Auto-route: slot 1 first, then slot 2, if both full replace slot 2
+    const targetSlot = !uploadedFile ? 1 : 2;
+    
+    if (targetSlot === 1) {
+      setUploadedFile(file);
+      if (isXml) {
+        setPdfUrl(''); setIsImageFile(false);
+        const reader = new FileReader();
+        reader.onload = (e) => setXmlContent(e.target.result);
+        reader.readAsText(file);
+      } else if (isMidi) {
+        setPdfUrl(''); setIsImageFile(false);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const parsed = parseMidiFile(e.target.result);
+            setXmlContent(JSON.stringify(parsed));
+          } catch (err) {
+            console.error('Failed to parse MIDI file:', err);
+            alert('MIDI 文件解析失败，请检查文件是否损坏。');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const url = URL.createObjectURL(file);
+        setPdfUrl(url); setIsImageFile(isImage); setXmlContent('');
+      }
+    } else {
+      setUploadedFile2(file);
+      if (isXml) {
+        setPdfUrl2(''); setIsImageFile2(false);
+        const reader = new FileReader();
+        reader.onload = (e) => setXmlContent2(e.target.result);
+        reader.readAsText(file);
+      } else if (isMidi) {
+        setPdfUrl2(''); setIsImageFile2(false);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const parsed = parseMidiFile(e.target.result);
+            setXmlContent2(JSON.stringify(parsed));
+          } catch (err) {
+            console.error('Failed to parse MIDI file:', err);
+            alert('MIDI 文件解析失败，请检查文件是否损坏。');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const url = URL.createObjectURL(file);
+        setPdfUrl2(url); setIsImageFile2(isImage); setXmlContent2('');
+      }
+    }
 
-    if (isXml) {
-      setPdfUrl('');
-      setIsImageFile(false);
-      // Direct reading for XML files client-side
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setXmlContent(e.target.result);
-      };
-      reader.readAsText(file);
-    } else if (isPdf || isImage) {
-      const url = URL.createObjectURL(file);
-      setPdfUrl(url);
-      setIsImageFile(isImage);
-      setXmlContent('');
+    // Update toolbar title
+    if (targetSlot === 1) {
+      setActiveScoreTitle(uploadedFile2 ? `${file.name} / ${uploadedFile2.name}` : file.name);
+    } else {
+      setActiveScoreTitle(uploadedFile ? `${uploadedFile.name} / ${file.name}` : file.name);
     }
   };
 
@@ -122,36 +232,24 @@ export default function App() {
     setPdfUrl('');
     setIsImageFile(false);
     setUploadedFile(null);
+    setActiveScoreTitle(uploadedFile2 ? uploadedFile2.name : '未选择乐谱');
+  };
+
+  const closeActiveFile2 = () => {
+    setXmlContent2('');
+    setPdfUrl2('');
+    setIsImageFile2(false);
+    setUploadedFile2(null);
+    setActiveScoreTitle(uploadedFile ? uploadedFile.name : '未选择乐谱');
+  };
+
+  const closeAllFiles = () => {
+    closeActiveFile();
+    closeActiveFile2();
     setActiveScoreTitle('未选择乐谱');
   };
 
-  const handleCustomSoundUpload = async (e) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) {
-      setSelectedSoundfont('default');
-      return;
-    }
-    
-    setSoundSourceType('正在加载自定义采样...');
-    setSelectedSoundfont('custom');
-    
-    try {
-      const loadedCount = await soundSynth.loadCustomSamples(files);
-      if (loadedCount > 0) {
-        setSoundSourceType(`自定义音源 (${loadedCount}个采样)`);
-        alert(`成功加载了 ${loadedCount} 个自定义音源采样！`);
-      } else {
-        setSoundSourceType('默认钢琴音源 (Salamander)');
-        setSelectedSoundfont('default');
-        alert('未能识别出任何有效的音频采样。文件名需包含 MIDI 编号 (如 60.wav) 或音名 (如 C4.mp3)。');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('加载自定义音源失败: ' + err.message);
-      setSoundSourceType('默认钢琴音源 (Salamander)');
-      setSelectedSoundfont('default');
-    }
-  };
+
 
   const handleSoundfontChange = async (e) => {
     const value = e.target.value;
@@ -169,8 +267,6 @@ export default function App() {
         console.error(err);
         setSoundSourceType('恢复失败，请重试');
       }
-    } else if (value === 'custom') {
-      document.getElementById('customSoundInput').click();
     } else {
       const files = soundfontsList[value] || [];
       setSoundSourceType(`正在加载 ${value}...`);
@@ -196,35 +292,10 @@ export default function App() {
     setMidiScoreZoom(prev => Math.max(0.4, Math.min(2.0, prev + factor)));
   };
 
-  const downloadXmlFile = () => {
-    if (!xmlContent) return;
-    const blob = new Blob([xmlContent], { type: 'application/vnd.recordare.musicxml+xml' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    
-    let filename = activeScoreTitle;
-    const lowerName = filename.toLowerCase();
-    if (!lowerName.endsWith('.musicxml') && !lowerName.endsWith('.xml')) {
-      const lastDot = filename.lastIndexOf('.');
-      if (lastDot !== -1) {
-        filename = filename.substring(0, lastDot) + '.musicxml';
-      } else {
-        filename = filename + '.musicxml';
-      }
-    }
-    
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   return (
-    <div className="app-container">
+    <div className={`app-container ${focusMode ? 'focus-mode' : ''}`}>
       {/* Sidebar panel */}
-      <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+      <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`} style={focusMode ? { display: 'none' } : undefined}>
         <div className="brand">
           <div className="logo-icon">
             <Music />
@@ -249,42 +320,72 @@ export default function App() {
             >
               <UploadCloud className="upload-icon" />
               <p className="upload-text">点击或拖拽上传乐谱文件</p>
-              <p className="upload-hint">支持 PDF / 图片 (后端识别) 或 MusicXML / XML</p>
+              <p className="upload-hint">支持 MIDI / MusicXML 或 PDF / 图片 (智能识别)</p>
               <input 
                 type="file" 
                 id="musicFileInput" 
-                accept=".pdf,.png,.jpg,.jpeg,.bmp,.webp,.musicxml,.xml,text/xml,application/xml,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" 
+                accept=".pdf,.png,.jpg,.jpeg,.bmp,.webp,.musicxml,.xml,.mid,.midi,text/xml,application/xml,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/x-midi" 
                 onChange={handleFileChange}
                 style={{ display: 'none' }}
               />
             </div>
 
-            {/* Uploaded File status */}
+            {/* Uploaded File status - Slot 1 */}
             {uploadedFile && (
               <div className="file-info-box">
                 <div className="info-item">
-                  <span className="info-label">已加载文件:</span>
+                  <span className="info-label">乐谱 1 (上):</span>
                   <span className="info-value">{uploadedFile.name}</span>
                 </div>
                 <div className="info-item">
                   <span className="info-label">大小:</span>
                   <span className="info-value">{(uploadedFile.size / 1024).toFixed(1)} KB</span>
                 </div>
-                {xmlContent && (
-                  <button 
-                    className="btn btn-primary btn-sm btn-block" 
-                    style={{ marginTop: '10px', marginBottom: '8px' }}
-                    onClick={downloadXmlFile}
-                  >
-                    <Download style={{ width: '14px', height: '14px', marginRight: '6px' }} />
-                    <span>下载 MusicXML</span>
-                  </button>
-                )}
                 <button 
                   className="btn btn-secondary btn-sm btn-block" 
                   onClick={closeActiveFile}
                 >
-                  关闭当前文件
+                  关闭乐谱 1
+                </button>
+              </div>
+            )}
+
+            {/* Uploaded File status - Slot 2 */}
+            {uploadedFile2 && (
+              <div className="file-info-box" style={{ marginTop: '8px' }}>
+                <div className="info-item">
+                  <span className="info-label">乐谱 2 (下):</span>
+                  <span className="info-value">{uploadedFile2.name}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">大小:</span>
+                  <span className="info-value">{(uploadedFile2.size / 1024).toFixed(1)} KB</span>
+                </div>
+                <button 
+                  className="btn btn-secondary btn-sm btn-block" 
+                  onClick={closeActiveFile2}
+                >
+                  关闭乐谱 2
+                </button>
+              </div>
+            )}
+
+            {/* Common controls for loaded scores */}
+            {(uploadedFile || uploadedFile2) && (
+              <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {uploadedFile && uploadedFile2 && (
+                  <button 
+                    className="btn btn-secondary btn-sm btn-block" 
+                    onClick={closeAllFiles}
+                  >
+                    关闭全部乐谱
+                  </button>
+                )}
+                <button 
+                  className={`btn ${showMidiScore ? 'btn-secondary' : 'btn-primary'} btn-sm btn-block`} 
+                  onClick={() => setShowMidiScore(!showMidiScore)}
+                >
+                  {showMidiScore ? '隐藏对照乐谱' : '显示对照乐谱'}
                 </button>
               </div>
             )}
@@ -333,20 +434,12 @@ export default function App() {
                   {Object.keys(soundfontsList).map(sf => (
                     <option key={sf} value={sf}>{sf}</option>
                   ))}
-                  <option value="custom">手动导入本地采样...</option>
                 </select>
               </div>
 
-              <input 
-                type="file"
-                id="customSoundInput"
-                multiple
-                accept="audio/*"
-                onChange={handleCustomSoundUpload}
-                style={{ display: 'none' }}
-              />
+
               
-              <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px', lineHeight: '1.3' }}>
+              <p style={{ fontSize: '10px', color: '#ffffff', marginTop: '8px', lineHeight: '1.3' }}>
                 提示：音源仅支持 .wav、.mp3 格式，文件名需为 1-88 的数字（对应琴键）或者 C#4/升C4/#C4 这种音名命名方式。音源需存放在 `frontend/public/soundfonts/` 相应的子目录内，系统将自动扫描。未覆盖的琴键将自动通过最邻近采样变调播放。
               </p>
             </div>
@@ -357,7 +450,7 @@ export default function App() {
       {/* Main workspace panel */}
       <main className="workspace">
         {/* Top Header Toolbar */}
-        <header className="toolbar">
+        <header className="toolbar" style={focusMode ? { display: 'none' } : undefined}>
           <div className="toolbar-left" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button 
               className="btn btn-secondary btn-sm" 
@@ -370,9 +463,8 @@ export default function App() {
             <span className="toolbar-title">{activeScoreTitle}</span>
           </div>
 
-          {xmlContent && (
-            <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-              {/* Toggle controls */}
+          <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            {(xmlContent || xmlContent2) && (
               <div className="toggle-group">
                 <button 
                   className={`toggle-btn ${annotationMode === 'notes' ? 'active' : ''}`}
@@ -387,24 +479,23 @@ export default function App() {
                   无标注
                 </button>
               </div>
-
-              {/* Download MusicXML Button */}
-              <button 
-                className="btn btn-primary btn-sm" 
-                onClick={downloadXmlFile}
-                title="下载 MusicXML 乐谱"
-              >
-                <Download style={{ width: '14px', height: '14px' }} />
-                <span>下载 MusicXML</span>
-              </button>
-            </div>
-          )}
+            )}
+            <button
+              className="btn btn-secondary btn-sm focus-mode-btn"
+              onClick={() => setFocusMode(true)}
+              title="专注模式 — 隐藏所有面板，只保留瀑布流和键盘"
+              style={{ padding: '6px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <Maximize2 style={{ width: '14px', height: '14px' }} />
+              <span style={{ fontSize: '12px' }}>专注模式</span>
+            </button>
+          </div>
         </header>
 
         {/* Main rendering area */}
-        <section className={`midi-workspace-area ${((xmlContent || pdfUrl) && showMidiScore) || backendProcessing ? 'split' : ''}`}>
-          {(((xmlContent || pdfUrl) && showMidiScore) || backendProcessing) && (
-            <div className="midi-score-container">
+        <section ref={workspaceRef} className={`midi-workspace-area ${((hasAnyScore && showMidiScore) || backendProcessing) && !focusMode ? 'split' : ''}`}>
+          {(hasAnyScore || backendProcessing) && !focusMode && (
+            <div ref={scoreContainerRef} className="midi-score-container" style={{ display: (showMidiScore || backendProcessing) ? undefined : 'none', width: `${scoreWidthPercent}%` }}>
               <div className="midi-score-toolbar">
                 <span className="midi-score-title">{backendProcessing ? "正在智能解析乐谱..." : "对照乐谱"}</span>
                 {!backendProcessing && (
@@ -419,7 +510,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="midi-score-scrollable">
+              <div className="midi-score-scrollable" style={{ display: 'flex', flexDirection: 'column' }}>
                 {backendProcessing ? (
                   <div className="score-loader" style={{ 
                     height: '100%', 
@@ -469,49 +560,117 @@ export default function App() {
                       <span style={{ fontWeight: 'bold', color: 'var(--accent-color)' }}>{omrProgress}%</span>
                     </div>
                   </div>
-                ) : pdfUrl ? (
-                  isImageFile ? (
-                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '10px', height: '100%', overflow: 'auto' }}>
-                      <img 
-                        src={pdfUrl} 
-                        alt="Uploaded Score" 
-                        style={{ 
-                          maxWidth: '100%', 
-                          height: 'auto', 
-                          transform: `scale(${midiScoreZoom})`, 
-                          transformOrigin: 'top center',
-                          transition: 'transform 0.2s'
-                        }} 
-                      />
-                    </div>
-                  ) : (
-                    <iframe 
-                      src={pdfUrl} 
-                      title="Uploaded PDF Score" 
-                      style={{ 
-                        width: '100%', 
-                        height: '100%', 
-                        border: 'none',
-                        backgroundColor: 'white'
-                      }} 
-                    />
-                  )
                 ) : (
-                  <ScoreViewer 
-                    xmlContent={xmlContent} 
-                    annotationMode={annotationMode} 
-                    zoom={midiScoreZoom} 
-                  />
+                  <>
+                    {/* Score Slot 1 (上) */}
+                    {hasScore1 && (
+                      <div style={{ 
+                        flex: hasScore2 ? '0 0 50%' : '1', 
+                        overflow: 'auto', 
+                        borderBottom: hasScore2 ? '2px solid var(--border-color)' : 'none',
+                        minHeight: 0,
+                        width: '100%'
+                      }}>
+                        {pdfUrl ? (
+                          isImageFile ? (
+                            <div style={{ padding: '10px', width: '100%', height: '100%', overflow: 'auto', textAlign: 'center' }}>
+                              <img 
+                                src={pdfUrl} 
+                                alt="Score 1" 
+                                style={{ 
+                                  width: `${midiScoreZoom * 100}%`,
+                                  height: 'auto',
+                                  objectFit: 'contain'
+                                }} 
+                              />
+                            </div>
+                          ) : (
+                            <iframe 
+                              src={pdfUrl} 
+                              title="Score 1 PDF" 
+                              style={{ width: '100%', height: '100%', border: 'none', backgroundColor: 'white' }} 
+                            />
+                          )
+                        ) : (
+                          <ScoreViewer 
+                            xmlContent={xmlContent} 
+                            annotationMode={annotationMode} 
+                            zoom={midiScoreZoom} 
+                          />
+                        )}
+                      </div>
+                    )}
+                    {/* Score Slot 2 (下) */}
+                    {hasScore2 && (
+                      <div style={{ 
+                        flex: hasScore1 ? '0 0 50%' : '1', 
+                        overflow: 'auto',
+                        minHeight: 0,
+                        width: '100%'
+                      }}>
+                        {pdfUrl2 ? (
+                          isImageFile2 ? (
+                            <div style={{ padding: '10px', width: '100%', height: '100%', overflow: 'auto', textAlign: 'center' }}>
+                              <img 
+                                src={pdfUrl2} 
+                                alt="Score 2" 
+                                style={{ 
+                                  width: `${midiScoreZoom * 100}%`,
+                                  height: 'auto',
+                                  objectFit: 'contain'
+                                }} 
+                              />
+                            </div>
+                          ) : (
+                            <iframe 
+                              src={pdfUrl2} 
+                              title="Score 2 PDF" 
+                              style={{ width: '100%', height: '100%', border: 'none', backgroundColor: 'white' }} 
+                            />
+                          )
+                        ) : (
+                          <ScoreViewer 
+                            xmlContent={xmlContent2} 
+                            annotationMode={annotationMode} 
+                            zoom={midiScoreZoom} 
+                          />
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
+              </div>
+            </div>
+          )}
+          {/* Draggable Splitter */}
+          {(hasAnyScore || backendProcessing) && (showMidiScore || backendProcessing) && !focusMode && (
+            <div
+              className="split-divider"
+              onMouseDown={handleSplitterMouseDown}
+            >
+              <div className="split-divider-grip">
+                <span></span><span></span><span></span>
               </div>
             </div>
           )}
           <MidiKeyboard 
             xmlContent={xmlContent} 
             showMidiScore={showMidiScore} 
-            setShowMidiScore={setShowMidiScore} 
+            setShowMidiScore={setShowMidiScore}
+            focusMode={focusMode}
           />
         </section>
+
+        {/* Focus mode floating exit button */}
+        {focusMode && (
+          <button
+            className="focus-mode-exit-btn"
+            onClick={() => setFocusMode(false)}
+            title="退出专注模式"
+          >
+            <Minimize2 style={{ width: '16px', height: '16px' }} />
+          </button>
+        )}
       </main>
     </div>
   );

@@ -263,7 +263,8 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @app.get("/api/soundfonts")
 def list_soundfonts():
-  soundfonts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "public", "soundfonts")
+  project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+  soundfonts_dir = os.path.join(project_root, "frontend", "public", "soundfonts")
   if not os.path.exists(soundfonts_dir):
     try:
       os.makedirs(soundfonts_dir, exist_ok=True)

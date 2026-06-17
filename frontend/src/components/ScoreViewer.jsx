@@ -46,6 +46,32 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom }) {
       setLoading(true);
       setError('');
       
+      // Check if it is a MIDI JSON content
+      if (typeof xmlContent === 'string' && xmlContent.trim().startsWith('{')) {
+        setError('');
+        setLoading(false);
+        if (containerRef.current) {
+          containerRef.current.innerHTML = `
+            <div class="midi-placeholder-box" style="
+              height: 100%;
+              display: flex;
+              flex-direction: column;
+              justify-content: center;
+              align-items: center;
+              padding: 40px;
+              color: var(--text-secondary);
+              text-align: center;
+              font-family: 'Outfit', sans-serif;
+            ">
+              <span style="font-size: 48px; margin-bottom: 16px;">🎵</span>
+              <h4 style="color: var(--text-primary); font-size: 16px; margin-bottom: 8px; font-weight: 500;">MIDI 乐谱数据已加载</h4>
+              <p style="font-size: 13px; max-width: 300px; line-height: 1.5; color: var(--text-muted);">MIDI 文件不含可视化五线谱符号。请在右下方控制栏中点击“播放”即可在瀑布流中播放显示音符。</p>
+            </div>
+          `;
+        }
+        return;
+      }
+      
       try {
         // Inject note names into XML before loading into OSMD
         const processedXml = injectNoteNamesToXml(xmlContent);
