@@ -6,9 +6,9 @@ let whiteKeyCount = 0;
 
 // Step 1: Identify all keys
 for (let midi = 21; midi <= 108; midi++) {
-  const noteInOctave = (midi - 12) % 12;
+  const noteInOctave = midi % 12;
   const name = noteNames[noteInOctave];
-  const octave = Math.floor((midi - 12) / 12) - 1;
+  const octave = Math.floor(midi / 12) - 1;
   const isBlack = name.includes('#');
   
   KEYS_88.push({
