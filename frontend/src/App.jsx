@@ -8,7 +8,9 @@ import {
   Menu,
   ChevronLeft,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Download,
+  X
 } from 'lucide-react';
 import ScoreViewer from './components/ScoreViewer';
 import MidiKeyboard from './components/MidiKeyboard';
@@ -65,7 +67,7 @@ export default function App() {
   }, [pdfUrl2]);
   
   // Scoring parameters
-  const [annotationMode, setAnnotationMode] = useState('notes'); // 'none', 'notes'
+  const [annotationMode, setAnnotationMode] = useState('none'); // 'none', 'notes'
   const [midiScoreZoom, setMidiScoreZoom] = useState(0.7); // default 0.7 for split panel
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showMidiScore, setShowMidiScore] = useState(true);
@@ -292,6 +294,20 @@ export default function App() {
     setMidiScoreZoom(prev => Math.max(0.4, Math.min(2.0, prev + factor)));
   };
 
+  const handleDownloadXml = (slotNum = 1) => {
+    const xml = slotNum === 1 ? xmlContent : xmlContent2;
+    if (!xml) return;
+    const blob = new Blob([xml], { type: 'application/vnd.recordare.musicxml+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `transcribed_score_${slotNum}.musicxml`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className={`app-container ${focusMode ? 'focus-mode' : ''}`}>
       {/* Sidebar panel */}
@@ -371,9 +387,9 @@ export default function App() {
             )}
 
             {/* Common controls for loaded scores */}
-            {(uploadedFile || uploadedFile2) && (
+            {(uploadedFile || uploadedFile2 || xmlContent || xmlContent2) && (
               <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {uploadedFile && uploadedFile2 && (
+                {((uploadedFile && uploadedFile2) || (xmlContent && xmlContent2)) && (
                   <button 
                     className="btn btn-secondary btn-sm btn-block" 
                     onClick={closeAllFiles}
@@ -499,14 +515,41 @@ export default function App() {
               <div className="midi-score-toolbar">
                 <span className="midi-score-title">{backendProcessing ? "正在智能解析乐谱..." : "对照乐谱"}</span>
                 {!backendProcessing && (
-                  <div className="zoom-controls">
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleMidiZoom(-0.1)} title="缩小">
-                      <ZoomOut style={{ width: '12px', height: '12px' }} />
-                    </button>
-                    <span className="zoom-level" style={{ minWidth: '35px', fontSize: '12px' }}>{Math.round(midiScoreZoom * 100)}%</span>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleMidiZoom(0.1)} title="放大">
-                      <ZoomIn style={{ width: '12px', height: '12px' }} />
-                    </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {(xmlContent || xmlContent2) && (
+                      <button 
+                        className="btn btn-primary btn-sm" 
+                        onClick={() => handleDownloadXml(xmlContent ? 1 : 2)} 
+                        title="下载 MusicXML 乐谱"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '5px 10px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          backgroundColor: 'var(--accent-color)',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '20px',
+                          cursor: 'pointer',
+                          transition: 'all var(--transition-normal)',
+                          boxShadow: '0 2px 8px rgba(99, 102, 241, 0.25)'
+                        }}
+                      >
+                        <Download style={{ width: '12px', height: '12px' }} />
+                        <span>下载乐谱</span>
+                      </button>
+                    )}
+                    <div className="zoom-controls">
+                      <button className="btn btn-secondary btn-sm" onClick={() => handleMidiZoom(-0.1)} title="缩小">
+                        <ZoomOut style={{ width: '12px', height: '12px' }} />
+                      </button>
+                      <span className="zoom-level" style={{ minWidth: '35px', fontSize: '12px' }}>{Math.round(midiScoreZoom * 100)}%</span>
+                      <button className="btn btn-secondary btn-sm" onClick={() => handleMidiZoom(0.1)} title="放大">
+                        <ZoomIn style={{ width: '12px', height: '12px' }} />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -655,6 +698,7 @@ export default function App() {
           )}
           <MidiKeyboard 
             xmlContent={xmlContent} 
+            setXmlContent={setXmlContent} 
             showMidiScore={showMidiScore} 
             setShowMidiScore={setShowMidiScore}
             focusMode={focusMode}

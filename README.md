@@ -31,10 +31,13 @@
 *   **QWERTY 电脑热键映射**：支持通过电脑按键直接测试弹奏（白键 `A-L` $\rightarrow$ `C4-D5`，黑键 `W-P` $\rightarrow$ `#C4-#D5`）。
 *   **智能和弦识别**：结合 `Tonal.js` 实时分析当前按下（或乐谱播放中）的音符，并在顶端显示标准的音乐和弦名称。
 *   **延音踏板与物理按键绑定**：允许点击界面上的“绑定”按钮，按下键盘上的**任意物理按键**（如空格键 Space）作为自定义延音开关。
+*   **演奏实时转译五线谱**：集成录制控制面板，支持同步开启木鱼 Click 声低延迟节拍器（BPM 40-240 自定义调节）。录音完毕后一键发送至后端，使用 `music21` 智能进行 50ms 起键和弦合并、16分音符/三连音量化对齐、高低音双轨分流，并自动生成小节及休止符，实时重新渲染出五线谱。
 *   **专注模式 (Focus Mode)**：一键隐藏左右侧边栏与配置，最大化展示瀑布流与 88 键钢琴，带来沉浸式体验。
 *   **📌 对应核心文件**：
-    *   [MidiKeyboard.jsx](file:///F:/Paino%20Waterfall/frontend/src/components/MidiKeyboard.jsx)（前端）：88键钢琴交互渲染、Web MIDI 设备连接监听、电脑热键弹奏处理器、延音绑定逻辑，以及特效配置悬浮窗 UI。
+    *   [MidiKeyboard.jsx](file:///F:/Paino%20Waterfall/frontend/src/components/MidiKeyboard.jsx)（前端）：88键钢琴交互渲染、录制控制面板、BPM与节拍器切换、Web MIDI 设备连接监听、电脑热键弹奏处理器、延音绑定逻辑，以及特效配置悬浮窗 UI。
+    *   [soundSynth.js](file:///F:/Paino%20Waterfall/frontend/src/utils/soundSynth.js)（前端）：提供音频合成引擎与低延迟 Web Audio API 节拍器 Click 音效。
     *   [keyboardLayout.js](file:///F:/Paino%20Waterfall/frontend/src/utils/keyboardLayout.js)（前端）：定义 QWERTY 键盘到 MIDI 音符的映射布局映射表。
+    *   [main.py](file:///F:/Paino%20Waterfall/backend/main.py)（后端）：提供 `/api/soundfonts` 扫描接口，以及 `/api/transcribe` 接口负责调用 `music21` 执行智能量化并输出 MusicXML。
 
 ### 4. 项目级采样管理器与智能音色映射
 *   **内置音色包管理器**：自动扫描后端 `public/soundfonts/` 下的子文件夹，每一个文件夹作为一个“音色包”（如 `施坦威钢琴`），支持零延迟一键加载。

@@ -179,6 +179,30 @@ class SoundSynth {
     this.preloadSamples();
   }
 
+  playMetronomeClick(time = null) {
+    this.init();
+    if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+    const clickTime = time !== null ? time : this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gainNode = this.ctx.createGain();
+    
+    osc.connect(gainNode);
+    gainNode.connect(this.ctx.destination);
+    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1000, clickTime);
+    osc.frequency.exponentialRampToValueAtTime(100, clickTime + 0.05);
+    
+    gainNode.gain.setValueAtTime(this.masterVolume * 0.8, clickTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, clickTime + 0.05);
+    
+    osc.start(clickTime);
+    osc.stop(clickTime + 0.06);
+  }
+
   setVolume(vol) {
     this.masterVolume = Math.max(0, Math.min(1, vol));
   }
@@ -489,120 +513,174 @@ class SoundSynth {
     // If pedal is released, fade out any notes that have already been released
     if (!this.sustainPedal && this.ctx) {
       const now = this.ctx.currentTime;
+      
+      // 1. Fade out active live manual notes
       for (const [midi, voice] of this.activeLiveNotes.entries()) {
         if (voice.released) {
           this.fadeAndStopVoice(voice, now);
           this.activeLiveNotes.delete(midi);
         }
       }
+      
+      // 2. Fade out active score playback notes that have exceeded their nominal duration
+      this.activeSources.forEach(s => {
+        const nominalEndTime = s.startTime + (s.duration || 0);
+        if (now > nominalEndTime) {
+          try {
+            s.gainNode.gain.cancelScheduledValues(now);
+            s.gainNode.gain.setValueAtTime(s.gainNode.gain.value || this.masterVolume, now);
+            s.gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+            s.source.stop(now + 0.2);
+            if (s.sourceHarmonic) {
+              s.sourceHarmonic.stop(now + 0.2);
+            }
+          } catch (e) {
+            // Ignored
+          }
+        }
+      });
     }
   }
 
   playNote(midi, duration, startTime, trackId = 0) {
-    this.init();
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
-    }
-    if (this.masterVolume <= 0) return;
-
-    const nearestMidi = getNearestSample(midi, this.buffers);
-    const buffer = nearestMidi !== null ? this.buffers.get(nearestMidi) : null;
-
-    if (buffer) {
-      // PLAY SALAMANDER SAMPLER NOTE
-      const source = this.ctx.createBufferSource();
-      source.buffer = buffer;
-
-      // Apply pitch shift (semitone diff playback rate adjustment)
-      const semitonesDiff = midi - nearestMidi;
-      const pitchShiftFactor = Math.pow(2, semitonesDiff / 12);
-      source.playbackRate.value = pitchShiftFactor;
-
-      const gainNode = this.ctx.createGain();
-      
-      // Simple gain envelope
-      gainNode.gain.setValueAtTime(0, startTime);
-      gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9, startTime + 0.005);
-      gainNode.gain.setValueAtTime(this.masterVolume * 0.9, startTime + duration - 0.05);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + duration + 0.1);
-
-      source.connect(gainNode);
-      gainNode.connect(this.ctx.destination);
-
-      source.start(startTime);
-      source.stop(startTime + duration + 0.15);
-
-      const sourceObj = {
-        source,
-        gainNode,
-        startTime,
-        stopTime: startTime + duration + 0.15
-      };
-
-      this.activeSources.push(sourceObj);
-      this.activeSources = this.activeSources.filter(s => s.stopTime > this.ctx.currentTime);
-    } else {
-      // SYNTHESIZER FALLBACK
-      const freq = Math.pow(2, (midi - 69) / 12) * 440;
-      
-      const oscFundamental = this.ctx.createOscillator();
-      const oscHarmonic = this.ctx.createOscillator();
-      
-      const gainFundamental = this.ctx.createGain();
-      const gainHarmonic = this.ctx.createGain();
-      const masterGain = this.ctx.createGain();
-
-      if (trackId % 3 === 0) {
-        oscFundamental.type = 'triangle';
-        oscHarmonic.type = 'sine';
-      } else if (trackId % 3 === 1) {
-        oscFundamental.type = 'sine';
-        oscHarmonic.type = 'triangle';
-      } else {
-        oscFundamental.type = 'triangle';
-        oscHarmonic.type = 'triangle';
+    try {
+      this.init();
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume();
       }
+      if (this.masterVolume <= 0) return;
 
-      oscFundamental.frequency.setValueAtTime(freq, startTime);
-      oscHarmonic.frequency.setValueAtTime(freq * 2, startTime);
+      const sustainActive = this.sustainPedal;
+      const effectiveDuration = sustainActive ? Math.max(duration, 4.0) : duration;
 
-      masterGain.gain.setValueAtTime(this.masterVolume, startTime);
+      const nearestMidi = getNearestSample(midi, this.buffers);
+      const buffer = nearestMidi !== null ? this.buffers.get(nearestMidi) : null;
 
-      gainFundamental.gain.setValueAtTime(0, startTime);
-      gainFundamental.gain.linearRampToValueAtTime(0.5, startTime + 0.005);
-      gainFundamental.gain.exponentialRampToValueAtTime(0.15, startTime + 0.15);
-      gainFundamental.gain.setValueAtTime(0.15, startTime + duration - 0.05);
-      gainFundamental.gain.exponentialRampToValueAtTime(0.0001, startTime + duration + 0.1);
+      if (buffer) {
+        // PLAY SALAMANDER SAMPLER NOTE
+        const source = this.ctx.createBufferSource();
+        source.buffer = buffer;
 
-      gainHarmonic.gain.setValueAtTime(0, startTime);
-      gainHarmonic.gain.linearRampToValueAtTime(0.15, startTime + 0.01);
-      gainHarmonic.gain.exponentialRampToValueAtTime(0.0001, startTime + Math.min(duration, 0.3));
+        // Apply pitch shift (semitone diff playback rate adjustment)
+        const semitonesDiff = midi - nearestMidi;
+        const pitchShiftFactor = Math.pow(2, semitonesDiff / 12);
+        source.playbackRate.value = pitchShiftFactor;
 
-      oscFundamental.connect(gainFundamental);
-      oscHarmonic.connect(gainHarmonic);
-      
-      gainFundamental.connect(masterGain);
-      gainHarmonic.connect(masterGain);
-      
-      masterGain.connect(this.ctx.destination);
+        const gainNode = this.ctx.createGain();
+        
+        // Define safe chronological times for the gain envelope to prevent RangeErrors
+        const peakTime = startTime + 0.005;
+        let sustainStartTime, fadeEndTime;
+        
+        if (sustainActive) {
+          sustainStartTime = startTime + 0.5;
+          fadeEndTime = startTime + effectiveDuration;
+        } else {
+          sustainStartTime = Math.max(peakTime + 0.001, startTime + duration - 0.05);
+          fadeEndTime = sustainStartTime + 0.1;
+        }
+        
+        // Gain envelope
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9, peakTime);
+        gainNode.gain.setValueAtTime(this.masterVolume * 0.9, sustainStartTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, fadeEndTime);
 
-      oscFundamental.start(startTime);
-      oscHarmonic.start(startTime);
+        source.connect(gainNode);
+        gainNode.connect(this.ctx.destination);
 
-      const stopTime = startTime + duration + 0.15;
-      oscFundamental.stop(stopTime);
-      oscHarmonic.stop(stopTime);
+        source.start(startTime);
+        source.stop(fadeEndTime + 0.05);
 
-      const sourceObj = {
-        source: oscFundamental, // Store primary oscillator to support stop()
-        sourceHarmonic: oscHarmonic,
-        gainNode: masterGain,
-        startTime,
-        stopTime
-      };
+        const sourceObj = {
+          source,
+          gainNode,
+          startTime,
+          duration,
+          stopTime: fadeEndTime + 0.15
+        };
 
-      this.activeSources.push(sourceObj);
-      this.activeSources = this.activeSources.filter(s => s.stopTime > this.ctx.currentTime);
+        this.activeSources.push(sourceObj);
+        this.activeSources = this.activeSources.filter(s => s.stopTime > this.ctx.currentTime);
+      } else {
+        // SYNTHESIZER FALLBACK
+        const freq = Math.pow(2, (midi - 69) / 12) * 440;
+        
+        const oscFundamental = this.ctx.createOscillator();
+        const oscHarmonic = this.ctx.createOscillator();
+        
+        const gainFundamental = this.ctx.createGain();
+        const gainHarmonic = this.ctx.createGain();
+        const masterGain = this.ctx.createGain();
+
+        if (trackId % 3 === 0) {
+          oscFundamental.type = 'triangle';
+          oscHarmonic.type = 'sine';
+        } else if (trackId % 3 === 1) {
+          oscFundamental.type = 'sine';
+          oscHarmonic.type = 'triangle';
+        } else {
+          oscFundamental.type = 'triangle';
+          oscHarmonic.type = 'triangle';
+        }
+
+        oscFundamental.frequency.setValueAtTime(freq, startTime);
+        oscHarmonic.frequency.setValueAtTime(freq * 2, startTime);
+
+        masterGain.gain.setValueAtTime(this.masterVolume, startTime);
+
+        // Define safe chronological times for the synth envelopes to prevent RangeErrors
+        const peakTime = startTime + 0.005;
+        const decayTime = peakTime + 0.145; // startTime + 0.15
+        let sustainStartTime, fadeEndTime;
+
+        if (sustainActive) {
+          sustainStartTime = startTime + 0.5;
+          fadeEndTime = startTime + effectiveDuration;
+        } else {
+          sustainStartTime = Math.max(decayTime + 0.001, startTime + duration - 0.05);
+          fadeEndTime = sustainStartTime + 0.15;
+        }
+
+        gainFundamental.gain.setValueAtTime(0, startTime);
+        gainFundamental.gain.linearRampToValueAtTime(0.5, peakTime);
+        gainFundamental.gain.exponentialRampToValueAtTime(0.15, decayTime);
+        gainFundamental.gain.setValueAtTime(0.15, sustainStartTime);
+        gainFundamental.gain.exponentialRampToValueAtTime(0.0001, fadeEndTime);
+
+        gainHarmonic.gain.setValueAtTime(0, startTime);
+        gainHarmonic.gain.linearRampToValueAtTime(0.15, startTime + 0.01);
+        gainHarmonic.gain.exponentialRampToValueAtTime(0.0001, Math.max(startTime + 0.011, startTime + Math.min(effectiveDuration, 0.3)));
+
+        oscFundamental.connect(gainFundamental);
+        oscHarmonic.connect(gainHarmonic);
+        
+        gainFundamental.connect(masterGain);
+        gainHarmonic.connect(masterGain);
+        
+        masterGain.connect(this.ctx.destination);
+
+        oscFundamental.start(startTime);
+        oscHarmonic.start(startTime);
+
+        const stopTime = fadeEndTime + 0.15;
+        oscFundamental.stop(stopTime);
+        oscHarmonic.stop(stopTime);
+
+        const sourceObj = {
+          source: oscFundamental,
+          sourceHarmonic: oscHarmonic,
+          gainNode: masterGain,
+          startTime,
+          duration,
+          stopTime
+        };
+
+        this.activeSources.push(sourceObj);
+        this.activeSources = this.activeSources.filter(s => s.stopTime > this.ctx.currentTime);
+      }
+    } catch (err) {
+      console.error("Error in SoundSynth.playNote:", err);
     }
   }
 

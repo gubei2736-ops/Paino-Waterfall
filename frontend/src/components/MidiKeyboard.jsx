@@ -52,13 +52,30 @@ const areArraysEqual = (a, b) => {
   return true;
 };
 
-export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiScore, focusMode }) {
+export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore, setShowMidiScore, focusMode }) {
   const [activeNotes, setActiveNotes] = useState([]); // User manual played active MIDI numbers
   const [playbackActiveNotes, setPlaybackActiveNotes] = useState([]); // Auto-played MIDI numbers from score
   const [liveNotes, setLiveNotes] = useState([]); // Live notes stream history for real-time visualizer
   const [detectedChord, setDetectedChord] = useState('');
   const [midiDevices, setMidiDevices] = useState([]);
   const [midiError, setMidiError] = useState('');
+
+  // Live recording & transcription states
+  const [isRecordingLive, setIsRecordingLive] = useState(false);
+  const isRecordingLiveRef = useRef(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [metronomeEnabled, setMetronomeEnabled] = useState(false);
+  const [metronomeBpm, setMetronomeBpm] = useState(120);
+
+  // Sync state to ref to avoid stale closures in event listeners
+  useEffect(() => {
+    isRecordingLiveRef.current = isRecordingLive;
+  }, [isRecordingLive]);
+
+  const recordedNotesRef = useRef([]);
+  const activeRecordedNotesRef = useRef(new Map());
+  const recordingStartTimeRef = useRef(0);
+  const metronomeIntervalRef = useRef(null);
 
   // Score playback states (only used in 'full' mode)
   const [parsedScore, setParsedScore] = useState(null);
@@ -613,6 +630,12 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
   // 3. Web MIDI Connection & Live Notes manager
   const addLiveNote = (midi) => {
     const now = performance.now() / 1000;
+    
+    if (isRecordingLiveRef.current) {
+      const relStartTime = now - recordingStartTimeRef.current;
+      activeRecordedNotesRef.current.set(midi, relStartTime);
+    }
+
     setLiveNotes(prev => {
       // Clean up finished notes older than 3.0s to prevent memory leaks
       const cleaned = prev.filter(n => n.endTime === null || now - n.endTime < 3.0);
@@ -630,6 +653,21 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
 
   const releaseLiveNote = (midi) => {
     const now = performance.now() / 1000;
+
+    if (isRecordingLiveRef.current) {
+      if (activeRecordedNotesRef.current.has(midi)) {
+        const relStartTime = activeRecordedNotesRef.current.get(midi);
+        const relEndTime = now - recordingStartTimeRef.current;
+        const duration = relEndTime - relStartTime;
+        recordedNotesRef.current.push({
+          midi,
+          time: relStartTime,
+          duration: Math.max(0.05, duration)
+        });
+        activeRecordedNotesRef.current.delete(midi);
+      }
+    }
+
     setLiveNotes(prev => prev.map(n => {
       if (n.midi === midi && n.endTime === null) {
         return { ...n, endTime: now };
@@ -742,6 +780,16 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
     synthRef.current.startNote(midiNum, 0);
 
     const now = performance.now() / 1000;
+    
+    if (isRecordingLiveRef.current) {
+      const relStartTime = now - recordingStartTimeRef.current;
+      recordedNotesRef.current.push({
+        midi: midiNum,
+        time: relStartTime,
+        duration: 0.2 // Fixed duration for on-screen mouse clicks
+      });
+    }
+
     const clickNoteId = `live-click-${midiNum}-${now}-${Math.random()}`;
 
     // Add note to live stream
@@ -780,6 +828,91 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
     }, 250);
   };
 
+  const handleToggleRecording = () => {
+    if (isRecordingLive) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
+  const startRecording = () => {
+    clearKeyboard();
+    recordedNotesRef.current = [];
+    activeRecordedNotesRef.current.clear();
+    recordingStartTimeRef.current = performance.now() / 1000;
+    isRecordingLiveRef.current = true;
+    setIsRecordingLive(true);
+    
+    if (metronomeEnabled) {
+      const beatInterval = 60000 / metronomeBpm;
+      synthRef.current.playMetronomeClick();
+      metronomeIntervalRef.current = setInterval(() => {
+        synthRef.current.playMetronomeClick();
+      }, beatInterval);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!isRecordingLiveRef.current) return;
+    isRecordingLiveRef.current = false;
+    setIsRecordingLive(false);
+    
+    if (metronomeIntervalRef.current) {
+      clearInterval(metronomeIntervalRef.current);
+      metronomeIntervalRef.current = null;
+    }
+    
+    const stopTime = (performance.now() / 1000) - recordingStartTimeRef.current;
+    activeRecordedNotesRef.current.forEach((relStartTime, midi) => {
+      recordedNotesRef.current.push({
+        midi,
+        time: relStartTime,
+        duration: Math.max(0.05, stopTime - relStartTime)
+      });
+    });
+    activeRecordedNotesRef.current.clear();
+    
+    if (recordedNotesRef.current.length === 0) {
+      alert("未录制到任何演奏音符，请弹奏后再试！");
+      return;
+    }
+    
+    console.log("Recorded notes before sending to backend:", recordedNotesRef.current);
+    setIsTranscribing(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/transcribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          notes: recordedNotesRef.current,
+          bpm: metronomeBpm
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error("后端转译服务异常");
+      }
+      
+      const data = await response.json();
+      if (data.status === 'success' && data.xml) {
+        if (setXmlContent) {
+          setXmlContent(data.xml);
+        }
+        setShowMidiScore(true);
+      } else {
+        alert("转写失败，未获得合法的乐谱数据。");
+      }
+    } catch (e) {
+      console.error(e);
+      alert(`智能转写失败: ${e.message}`);
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
   const clearKeyboard = () => {
     setActiveNotes([]);
     setPlaybackActiveNotes([]);
@@ -791,6 +924,10 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
     return () => {
       cancelAnimationFrame(animationFrameRef.current);
       synthRef.current.stopAll();
+      if (metronomeIntervalRef.current) {
+        clearInterval(metronomeIntervalRef.current);
+        metronomeIntervalRef.current = null;
+      }
     };
   }, []);
 
@@ -871,6 +1008,96 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
             >
               {isBinding ? '按任意键...' : `快捷键: ${sustainShortcut.name}`}
             </button>
+          </div>
+
+          {/* Recording & Transcription Control Group */}
+          <div className="recording-controls-group" style={{ display: 'flex', alignItems: 'center', gap: '0px' }}>
+            <button 
+              className={`btn btn-sm record-btn ${isRecordingLive ? 'active' : ''}`}
+              onClick={handleToggleRecording}
+              disabled={isTranscribing}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '20px 0 0 20px',
+                fontSize: '11px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: isRecordingLive ? '#ef4444' : 'var(--bg-input)',
+                color: isRecordingLive ? '#ffffff' : 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRight: 'none',
+                boxShadow: isRecordingLive ? '0 0 10px rgba(239, 68, 68, 0.3)' : 'none',
+                transition: 'all var(--transition-normal)'
+              }}
+            >
+              <span className={`status-indicator-dot ${isRecordingLive ? 'blinking' : ''}`} style={{ 
+                width: '7px', 
+                height: '7px', 
+                borderRadius: '50%', 
+                backgroundColor: isRecordingLive ? '#ffffff' : '#ef4444',
+                display: 'inline-block',
+              }}></span>
+              <span>{isTranscribing ? '转写中...' : isRecordingLive ? '停止录制并转写' : '录制演奏'}</span>
+            </button>
+            
+            {/* Metronome toggle */}
+            <button
+              onClick={() => setMetronomeEnabled(!metronomeEnabled)}
+              disabled={isRecordingLive}
+              title="录制期间的节拍器 Click 声音"
+              style={{
+                padding: '6px 10px',
+                fontSize: '10px',
+                fontWeight: '600',
+                backgroundColor: metronomeEnabled ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-panel)',
+                color: metronomeEnabled ? 'var(--accent-color)' : 'var(--text-muted)',
+                border: '1px solid var(--border-color)',
+                borderRight: 'none',
+                cursor: 'pointer',
+                transition: 'all var(--transition-normal)',
+                outline: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <span>🔊 节拍器: {metronomeEnabled ? '开' : '关'}</span>
+            </button>
+
+            {/* Metronome BPM selector */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: 'var(--bg-panel)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '0 20px 20px 0',
+              padding: '2px 8px',
+              height: '29px',
+              gap: '4px'
+            }}>
+              <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '600' }}>BPM:</span>
+              <input 
+                type="number"
+                min="40"
+                max="240"
+                value={metronomeBpm}
+                disabled={isRecordingLive}
+                onChange={(e) => setMetronomeBpm(Math.max(40, Math.min(240, parseInt(e.target.value) || 120)))}
+                style={{
+                  width: '42px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  outline: 'none',
+                  textAlign: 'center',
+                  padding: '0'
+                }}
+              />
+            </div>
           </div>
 
           {/* Note Name Display Switch */}
@@ -1276,22 +1503,6 @@ export default function MidiKeyboard({ xmlContent, showMidiScore, setShowMidiSco
             )}
           </div>
 
-          {/* Show/Hide Score Button (Only visible if score exists) */}
-          {xmlContent && (
-            <button
-              className={`btn btn-sm ${showMidiScore ? 'btn-secondary' : 'btn-primary'}`}
-              onClick={() => setShowMidiScore(!showMidiScore)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '20px',
-                fontSize: '11px',
-                fontWeight: '600',
-                transition: 'all var(--transition-normal)'
-              }}
-            >
-              {showMidiScore ? '隐藏对照乐谱' : '显示对照乐谱'}
-            </button>
-          )}
 
           {/* Top Volume Slider */}
           <div className="control-slider-group" style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
