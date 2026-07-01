@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Midi, Chord } from '@tonaljs/tonal';
-import { Play, Pause, Volume2, ListMusic } from 'lucide-react';
+import { Play, Pause, Volume2, ListMusic, Sparkles } from 'lucide-react';
 import { KEYS_88 } from '../utils/keyboardLayout';
 import { parseMusicXml } from '../utils/musicXmlParser';
 import soundSynth from '../utils/soundSynth';
@@ -85,6 +85,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [volume, setVolume] = useState(0.5);
+  const [reverbMix, setReverbMix] = useState(0.3);
   const [sustain, setSustain] = useState(false);
 
   const [sustainShortcut, setSustainShortcut] = useState(() => {
@@ -323,6 +324,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   useEffect(() => { activeTracksRef.current = activeTracks; }, [activeTracks]);
   useEffect(() => { playbackRateRef.current = playbackRate; }, [playbackRate]);
   useEffect(() => { synthRef.current.setVolume(volume); }, [volume]);
+  useEffect(() => { synthRef.current.setReverbMix(reverbMix); }, [reverbMix]);
   useEffect(() => { synthRef.current.setSustain(sustain); }, [sustain]);
 
   // Listen to piano sound font loading progress
@@ -1518,9 +1520,29 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
               onChange={(e) => setVolume(parseFloat(e.target.value))}
               className="control-range-input"
               style={{ width: '70px', height: '3px' }}
+              title="主音量"
             />
             <span className="slider-value-display" style={{ fontSize: '11px', color: 'var(--text-secondary)', minWidth: '28px' }}>
               {Math.round(volume * 100)}%
+            </span>
+          </div>
+
+          {/* Top Reverb Slider */}
+          <div className="control-slider-group" style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Sparkles style={{ width: '13px', height: '13px', color: 'var(--text-secondary)' }} />
+            <input 
+              type="range"
+              min={0}
+              max={1.0}
+              step={0.05}
+              value={reverbMix}
+              onChange={(e) => setReverbMix(parseFloat(e.target.value))}
+              className="control-range-input"
+              style={{ width: '70px', height: '3px' }}
+              title="殿堂空间混响深度"
+            />
+            <span className="slider-value-display" style={{ fontSize: '11px', color: 'var(--text-secondary)', minWidth: '28px' }}>
+              {Math.round(reverbMix * 100)}%
             </span>
           </div>
         </div>
@@ -1600,6 +1622,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
 
             <div className="control-slider-group">
               <Volume2 style={{ width: '14px', height: '14px', color: 'var(--text-secondary)' }} />
+              <span className="slider-label" style={{ minWidth: '35px' }}>音量:</span>
               <input 
                 type="range"
                 min={0}
@@ -1610,6 +1633,21 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                 className="control-range-input"
               />
               <span className="slider-value-display">{Math.round(volume * 100)}%</span>
+            </div>
+
+            <div className="control-slider-group">
+              <Sparkles style={{ width: '14px', height: '14px', color: 'var(--text-secondary)' }} />
+              <span className="slider-label" style={{ minWidth: '35px' }}>混响:</span>
+              <input 
+                type="range"
+                min={0}
+                max={1.0}
+                step={0.05}
+                value={reverbMix}
+                onChange={(e) => setReverbMix(parseFloat(e.target.value))}
+                className="control-range-input"
+              />
+              <span className="slider-value-display">{Math.round(reverbMix * 100)}%</span>
             </div>
 
             {/* Track checkboxes */}
