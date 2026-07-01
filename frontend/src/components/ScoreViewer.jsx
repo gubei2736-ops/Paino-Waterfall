@@ -15,6 +15,7 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
       try {
         osmdRef.current = new OpenSheetMusicDisplay(containerRef.current, {
           autoResize: true,
+          backend: "canvas", // Use HTML5 Canvas to speed up rendering and lower DOM tree recalculation overhead
           drawTitle: true,
           drawSubtitle: true,
           drawCredits: false,
@@ -40,6 +41,7 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
 
   // 2. Load XML Content and render
   useEffect(() => {
+    let active = true;
     const loadScore = async () => {
       if (!osmdRef.current || !xmlContent) return;
       
@@ -48,6 +50,7 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
       
       // Check if it is a MIDI JSON content
       if (typeof xmlContent === 'string' && xmlContent.trim().startsWith('{')) {
+        if (!active) return;
         setError('');
         setLoading(false);
         if (containerRef.current) {
@@ -72,11 +75,16 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
         return;
       }
       
+      // Yield thread (50ms delay) to let React paint the loading spinner state and start CSS animation
+      await new Promise(resolve => setTimeout(resolve, 50));
+      if (!active) return;
+      
       try {
         // Inject note names into XML before loading into OSMD
         const processedXml = injectNoteNamesToXml(xmlContent);
         
         await osmdRef.current.load(processedXml);
+        if (!active) return;
         
         applyRules();
         osmdRef.current.render();
@@ -87,13 +95,16 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
         }
       } catch (err) {
         console.error('Error rendering MusicXML score:', err);
-        setError('无法绘制乐谱，请检查文件格式。');
+        if (active) setError('无法绘制乐谱，请检查文件格式。');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
     
     loadScore();
+    return () => {
+      active = false;
+    };
   }, [xmlContent]);
 
   // 3. Listen to rules change (Annotation Mode & Zoom)
