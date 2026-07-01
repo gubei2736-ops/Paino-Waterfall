@@ -1,6 +1,7 @@
 # 🎹 钢琴瀑布流与智能记谱系统 (Piano Waterfall & Sheet Music System)
 
 这是一个集成了**钢琴瀑布流可视化**、**五线谱交互播放**、**MIDI/电脑键盘演奏**以及**智能录音转译记谱**的现代化网页应用。项目去除了冗余的 AI 图像识别（OMR）模块，保留了纯净的基于 `music21` 的音频录制转译核心，提供轻量、高效的乐谱辅助教学体验。
+<img width="2502" height="1261" alt="image" src="https://github.com/user-attachments/assets/0bbd961c-b6dd-4c24-95a1-61b2dab7332c" />
 
 ---
 
