@@ -37,7 +37,6 @@ Piano Waterfall/
 
 ## 📥 克隆仓库后的本地安装与部署 (推荐)
 
-如果你是第一次从 GitHub 克隆本项目，需要先在本地安装前后端的依赖项，然后即可双击启动。
 
 ### 前提条件
 * 本地已安装 [Node.js](https://nodejs.org/) (建议 v18+ 或更高版本)
@@ -90,20 +89,6 @@ Piano Waterfall/
 
 ---
 
-## 🚀 云端生产环境部署 (Production Deployment)
-
-如果你希望将本项目部署到云端服务器或平台，以供公网访问，请参考以下配置：
-
-### 1. 🐍 后端部署 (FastAPI)
-推荐部署到 **Render**、**Railway** 或 **Fly.io**：
-* **构建命令**：`pip install -r requirements.txt`
-* **启动命令**：`uvicorn main:app --host 0.0.0.0 --port $PORT`
-
-### 2. ⚛️ 前端部署 (React + Vite)
-推荐部署到 **Vercel** 或 **Netlify**：
-* **重要配置**：在部署平台的环境变量中，添加 `VITE_API_URL` 变量，其值指向你部署成功的**后端云端域名**（如 `https://your-backend.onrender.com`）。这能确保线上前端与线上后端正确对接。
-
----
 
 ## 🔧 核心功能开发与修改指南
 
