@@ -6,6 +6,8 @@ import { parseMusicXml } from '../utils/musicXmlParser';
 import soundSynth from '../utils/soundSynth';
 import TrackVisualizer from './TrackVisualizer';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 const COMPUTER_KEY_MAP = {
   'a': 60, // C4
   'w': 61, // C#4
@@ -881,7 +883,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     console.log("Recorded notes before sending to backend:", recordedNotesRef.current);
     setIsTranscribing(true);
     try {
-      const response = await fetch('http://localhost:8000/api/transcribe', {
+      const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

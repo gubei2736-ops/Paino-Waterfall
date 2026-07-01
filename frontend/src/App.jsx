@@ -17,6 +17,8 @@ import MidiKeyboard from './components/MidiKeyboard';
 import soundSynth from './utils/soundSynth';
 import { parseMidiFile } from './utils/midiParser';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 export default function App() {
   // Score slot 1 (上)
   const [xmlContent, setXmlContent] = useState('');
@@ -42,7 +44,7 @@ export default function App() {
     // Fetch soundfonts list from backend
     const fetchSoundfonts = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/soundfonts');
+        const response = await fetch(`${API_BASE_URL}/api/soundfonts`);
         if (response.ok) {
           const data = await response.json();
           setSoundfontsList(data);
