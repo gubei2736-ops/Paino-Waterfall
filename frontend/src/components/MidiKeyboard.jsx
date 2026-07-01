@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Midi, Chord } from '@tonaljs/tonal';
-import { Play, Pause, Square, Volume2, ListMusic, Info } from 'lucide-react';
+import { Play, Pause, Volume2, ListMusic } from 'lucide-react';
 import { KEYS_88 } from '../utils/keyboardLayout';
 import { parseMusicXml } from '../utils/musicXmlParser';
 import soundSynth from '../utils/soundSynth';

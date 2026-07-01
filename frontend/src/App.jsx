@@ -143,9 +143,7 @@ export default function App() {
   
   // File upload state
   const [dragOver, setDragOver] = useState(false);
-  const [backendProcessing, setBackendProcessing] = useState(false);
-  const [omrStage, setOmrStage] = useState('等待处理...');
-  const [omrProgress, setOmrProgress] = useState(0);
+
 
   // Derived flags
   const hasScore1 = !!(xmlContent || pdfUrl);
@@ -529,12 +527,12 @@ export default function App() {
         </header>
 
         {/* Main rendering area */}
-        <section ref={workspaceRef} className={`midi-workspace-area ${((hasAnyScore && showMidiScore) || backendProcessing) && !focusMode ? 'split' : ''}`}>
-          {(hasAnyScore || backendProcessing) && !focusMode && (
-            <div ref={scoreContainerRef} className="midi-score-container" style={{ display: (showMidiScore || backendProcessing) ? undefined : 'none', width: `${scoreWidthPercent}%` }}>
+        <section ref={workspaceRef} className={`midi-workspace-area ${(hasAnyScore && showMidiScore) && !focusMode ? 'split' : ''}`}>
+          {hasAnyScore && !focusMode && (
+            <div ref={scoreContainerRef} className="midi-score-container" style={{ display: showMidiScore ? undefined : 'none', width: `${scoreWidthPercent}%` }}>
               <div className="midi-score-toolbar">
-                <span className="midi-score-title">{backendProcessing ? "正在智能解析乐谱..." : "对照乐谱"}</span>
-                {!backendProcessing && (
+                <span className="midi-score-title">对照乐谱</span>
+                {(
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     {(xmlContent || xmlContent2) && (
                       <button 
@@ -574,56 +572,6 @@ export default function App() {
                 )}
               </div>
               <div className="midi-score-scrollable" style={{ display: 'flex', flexDirection: 'column' }}>
-                {backendProcessing ? (
-                  <div className="score-loader" style={{ 
-                    height: '100%', 
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    padding: '40px',
-                    backgroundColor: 'var(--bg-secondary)',
-                    borderRadius: '8px',
-                    margin: '20px',
-                    border: '1px solid var(--border-color)',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
-                  }}>
-                    <div className="spinner" style={{ marginBottom: '24px' }}></div>
-                    <h3 style={{ color: 'var(--text-primary)', marginBottom: '12px', fontSize: '16px', fontWeight: '500' }}>智能乐谱识别中</h3>
-                    
-                    {/* Progress Bar */}
-                    <div style={{ 
-                      width: '100%', 
-                      maxWidth: '400px', 
-                      height: '6px', 
-                      backgroundColor: 'rgba(255, 255, 255, 0.1)', 
-                      borderRadius: '3px',
-                      overflow: 'hidden',
-                      marginBottom: '16px'
-                    }}>
-                      <div style={{ 
-                        width: `${omrProgress}%`, 
-                        height: '100%', 
-                        background: 'linear-gradient(90deg, var(--accent-color) 0%, #6366f1 100%)',
-                        borderRadius: '3px',
-                        transition: 'width 0.4s ease-out'
-                      }}></div>
-                    </div>
-                    
-                    {/* Progress details */}
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      width: '100%', 
-                      maxWidth: '400px',
-                      color: 'var(--text-secondary)',
-                      fontSize: '12px'
-                    }}>
-                      <span>{omrStage}</span>
-                      <span style={{ fontWeight: 'bold', color: 'var(--accent-color)' }}>{omrProgress}%</span>
-                    </div>
-                  </div>
-                ) : (
                   <>
                     {/* Score Slot 1 (上) */}
                     {hasScore1 && (
@@ -709,12 +657,11 @@ export default function App() {
                       </div>
                     )}
                   </>
-                )}
               </div>
             </div>
           )}
           {/* Draggable Splitter */}
-          {(hasAnyScore || backendProcessing) && (showMidiScore || backendProcessing) && !focusMode && (
+          {hasAnyScore && showMidiScore && !focusMode && (
             <div
               className="split-divider"
               onMouseDown={handleSplitterMouseDown}
