@@ -1007,6 +1007,7 @@ select:focus {
   position: relative;
 }
 
+
 .midi-keyboard-full-container .piano-keyboard-wrapper {
   height: 120px;
   flex-shrink: 0;

@@ -152,6 +152,12 @@ class SoundSynth {
     this.progressCallbacks = new Set();
     this.activeLiveNotes = new Map(); // midi -> voice object
     this.sustainPedal = false;
+    
+    // Reverb Properties
+    this.reverbMix = 0.3; // Default 30% wet mix
+    this.dryGainNode = null;
+    this.wetGainNode = null;
+    this.convolverNode = null;
   }
 
   addProgressListener(cb) {
@@ -173,9 +179,56 @@ class SoundSynth {
     });
   }
 
+  createReverbImpulseResponse() {
+    const rate = this.ctx.sampleRate;
+    const length = rate * 2.5; // 2.5 seconds decay time
+    const impulse = this.ctx.createBuffer(2, length, rate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+    
+    for (let i = 0; i < length; i++) {
+      // Exponential decay envelope
+      const decay = Math.exp(-i / (rate * 0.8));
+      // White noise * decay
+      left[i] = (Math.random() * 2 - 1) * decay;
+      right[i] = (Math.random() * 2 - 1) * decay;
+    }
+    
+    return impulse;
+  }
+
+  setReverbMix(mix) {
+    this.reverbMix = Math.max(0, Math.min(1, mix));
+    if (this.ctx && this.wetGainNode) {
+      const now = this.ctx.currentTime;
+      this.wetGainNode.gain.cancelScheduledValues(now);
+      this.wetGainNode.gain.setValueAtTime(this.reverbMix, now);
+    }
+  }
+
   init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Create parallel gain nodes for Dry and Wet signals
+    this.dryGainNode = this.ctx.createGain();
+    this.wetGainNode = this.ctx.createGain();
+    this.convolverNode = this.ctx.createConvolver();
+    
+    try {
+      this.convolverNode.buffer = this.createReverbImpulseResponse();
+    } catch (e) {
+      console.error("Failed to set synthetic reverb impulse response:", e);
+    }
+    
+    this.dryGainNode.gain.setValueAtTime(1.0, this.ctx.currentTime);
+    this.wetGainNode.gain.setValueAtTime(this.reverbMix, this.ctx.currentTime);
+    
+    // Connections
+    this.dryGainNode.connect(this.ctx.destination);
+    this.convolverNode.connect(this.wetGainNode);
+    this.wetGainNode.connect(this.ctx.destination);
+    
     this.preloadSamples();
   }
 
@@ -186,21 +239,64 @@ class SoundSynth {
       this.ctx.resume();
     }
     const clickTime = time !== null ? time : this.ctx.currentTime;
+    // 1. Wooden body resonance oscillator (triangle wave + pitch sweep)
     const osc = this.ctx.createOscillator();
     const gainNode = this.ctx.createGain();
     
     osc.connect(gainNode);
-    gainNode.connect(this.ctx.destination);
+    if (this.dryGainNode) {
+      gainNode.connect(this.dryGainNode);
+    } else {
+      gainNode.connect(this.ctx.destination);
+    }
     
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1000, clickTime);
-    osc.frequency.exponentialRampToValueAtTime(100, clickTime + 0.05);
+    // Triangle wave provides warm wooden body resonance
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(2400, clickTime);
+    osc.frequency.exponentialRampToValueAtTime(900, clickTime + 0.005); // extremely fast initial drop
+    osc.frequency.linearRampToValueAtTime(800, clickTime + 0.02);
     
-    gainNode.gain.setValueAtTime(this.masterVolume * 0.8, clickTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, clickTime + 0.05);
+    // Extremely crisp, tight envelope (short decay)
+    gainNode.gain.setValueAtTime(0.001, clickTime);
+    gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.95, clickTime + 0.001); // 1ms attack
+    gainNode.gain.exponentialRampToValueAtTime(0.001, clickTime + 0.025); // very tight 25ms decay
     
     osc.start(clickTime);
-    osc.stop(clickTime + 0.06);
+    osc.stop(clickTime + 0.035);
+
+    // 2. High-frequency click transient (filtered white noise burst for mechanical hammer impact)
+    try {
+      const bufferSize = this.ctx.sampleRate * 0.01; // 10ms duration
+      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = Math.random() * 2 - 1;
+      }
+      
+      const noiseSource = this.ctx.createBufferSource();
+      noiseSource.buffer = noiseBuffer;
+      
+      const noiseFilter = this.ctx.createBiquadFilter();
+      noiseFilter.type = 'highpass';
+      noiseFilter.frequency.setValueAtTime(5500, clickTime); // highpass filters the "clack" for a crisper snap
+      
+      const noiseGain = this.ctx.createGain();
+      noiseGain.gain.setValueAtTime(this.masterVolume * 0.4, clickTime); // higher amplitude for sharp snap
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, clickTime + 0.008); // fast 8ms decay
+      
+      noiseSource.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      if (this.dryGainNode) {
+        noiseGain.connect(this.dryGainNode);
+      } else {
+        noiseGain.connect(this.ctx.destination);
+      }
+      
+      noiseSource.start(clickTime);
+      noiseSource.stop(clickTime + 0.01);
+    } catch (e) {
+      console.error("Failed to play mechanical metronome noise transient:", e);
+    }
   }
 
   setVolume(vol) {
@@ -402,7 +498,14 @@ class SoundSynth {
       gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9, startTime + 0.005);
 
       source.connect(gainNode);
-      gainNode.connect(this.ctx.destination);
+      if (this.dryGainNode) {
+        gainNode.connect(this.dryGainNode);
+        if (this.convolverNode) {
+          gainNode.connect(this.convolverNode);
+        }
+      } else {
+        gainNode.connect(this.ctx.destination);
+      }
 
       source.start(startTime);
 
@@ -451,7 +554,14 @@ class SoundSynth {
       gainFundamental.connect(masterGain);
       gainHarmonic.connect(masterGain);
       
-      masterGain.connect(this.ctx.destination);
+      if (this.dryGainNode) {
+        masterGain.connect(this.dryGainNode);
+        if (this.convolverNode) {
+          masterGain.connect(this.convolverNode);
+        }
+      } else {
+        masterGain.connect(this.ctx.destination);
+      }
 
       oscFundamental.start(startTime);
       oscHarmonic.start(startTime);
@@ -587,7 +697,14 @@ class SoundSynth {
         gainNode.gain.exponentialRampToValueAtTime(0.0001, fadeEndTime);
 
         source.connect(gainNode);
-        gainNode.connect(this.ctx.destination);
+        if (this.dryGainNode) {
+          gainNode.connect(this.dryGainNode);
+          if (this.convolverNode) {
+            gainNode.connect(this.convolverNode);
+          }
+        } else {
+          gainNode.connect(this.ctx.destination);
+        }
 
         source.start(startTime);
         source.stop(fadeEndTime + 0.05);
@@ -658,7 +775,14 @@ class SoundSynth {
         gainFundamental.connect(masterGain);
         gainHarmonic.connect(masterGain);
         
-        masterGain.connect(this.ctx.destination);
+        if (this.dryGainNode) {
+          masterGain.connect(this.dryGainNode);
+          if (this.convolverNode) {
+            masterGain.connect(this.convolverNode);
+          }
+        } else {
+          masterGain.connect(this.ctx.destination);
+        }
 
         oscFundamental.start(startTime);
         oscHarmonic.start(startTime);

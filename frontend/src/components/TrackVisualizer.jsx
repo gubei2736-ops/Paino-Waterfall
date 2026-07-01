@@ -404,6 +404,8 @@ export default function TrackVisualizer({
       ctx.fillStyle = '#0b0c10';
       ctx.fillRect(0, 0, w, h);
 
+
+
       // Calculate dynamic custom color ratio if enabled
       let activeCustomColor = null;
       if (customColorsEnabled) {

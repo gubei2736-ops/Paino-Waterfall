@@ -73,6 +73,26 @@ export default function App() {
   const [showMidiScore, setShowMidiScore] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
 
+  // Playback sync states for score follower
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackBpm, setPlaybackBpm] = useState(120);
+  const [seekRequest, setSeekRequest] = useState(null);
+
+  // Key and time signature states for transcription
+  const [selectedKey, setSelectedKey] = useState('C');
+  const [selectedMeter, setSelectedMeter] = useState('4/4');
+
+  const handleTimeUpdate = useCallback((time, playing, bpm) => {
+    setPlaybackTime(time);
+    setIsPlaying(playing);
+    if (bpm) setPlaybackBpm(bpm);
+  }, []);
+
+  const handleScoreNoteClick = useCallback((time) => {
+    setSeekRequest({ time });
+  }, []);
+
   // Resizable split pane
   const [scoreWidthPercent, setScoreWidthPercent] = useState(48);
   const workspaceRef = useRef(null);
@@ -635,11 +655,15 @@ export default function App() {
                             />
                           )
                         ) : (
-                          <ScoreViewer 
-                            xmlContent={xmlContent} 
-                            annotationMode={annotationMode} 
-                            zoom={midiScoreZoom} 
-                          />
+                           <ScoreViewer 
+                             xmlContent={xmlContent} 
+                             annotationMode={annotationMode} 
+                             zoom={midiScoreZoom} 
+                             playbackTime={playbackTime}
+                             isPlaying={isPlaying}
+                             bpm={playbackBpm}
+                             onNoteClick={handleScoreNoteClick}
+                           />
                         )}
                       </div>
                     )}
@@ -672,11 +696,15 @@ export default function App() {
                             />
                           )
                         ) : (
-                          <ScoreViewer 
-                            xmlContent={xmlContent2} 
-                            annotationMode={annotationMode} 
-                            zoom={midiScoreZoom} 
-                          />
+                           <ScoreViewer 
+                             xmlContent={xmlContent2} 
+                             annotationMode={annotationMode} 
+                             zoom={midiScoreZoom} 
+                             playbackTime={playbackTime}
+                             isPlaying={isPlaying}
+                             bpm={playbackBpm}
+                             onNoteClick={handleScoreNoteClick}
+                           />
                         )}
                       </div>
                     )}
@@ -697,12 +725,19 @@ export default function App() {
             </div>
           )}
           <MidiKeyboard 
-            xmlContent={xmlContent} 
-            setXmlContent={setXmlContent} 
-            showMidiScore={showMidiScore} 
-            setShowMidiScore={setShowMidiScore}
-            focusMode={focusMode}
-          />
+             xmlContent={xmlContent} 
+             setXmlContent={setXmlContent} 
+             showMidiScore={showMidiScore} 
+             setShowMidiScore={setShowMidiScore}
+             focusMode={focusMode}
+             onTimeUpdate={handleTimeUpdate}
+             seekRequest={seekRequest}
+             setSeekRequest={setSeekRequest}
+             selectedKey={selectedKey}
+             setSelectedKey={setSelectedKey}
+             selectedMeter={selectedMeter}
+             setSelectedMeter={setSelectedMeter}
+           />
         </section>
 
         {/* Focus mode floating exit button */}

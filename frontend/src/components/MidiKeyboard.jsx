@@ -1580,10 +1580,6 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                   <span>播放</span>
                 </button>
               )}
-              <button className="btn btn-secondary btn-sm" onClick={handleStop}>
-                <Square style={{ width: '14px', height: '14px' }} />
-                <span>停止</span>
-              </button>
             </div>
 
             <div className="control-slider-group">

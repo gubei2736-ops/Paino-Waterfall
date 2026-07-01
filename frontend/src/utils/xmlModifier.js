@@ -5,6 +5,9 @@
  * Note names are placed above the staff by setting the placement="above" attribute.
  */
 export function injectNoteNamesToXml(xmlString) {
+  if (!xmlString || typeof xmlString !== 'string') {
+    return '';
+  }
   try {
     // Strip BOM, trim, and remove DOCTYPE declaration to avoid DOMParser parsererror in browser
     const cleanXml = xmlString.replace(/^\uFEFF/, '').trim().replace(/<!DOCTYPE\s+[^>\[]*(?:\[[\s\S]*?\])?\s*>/gi, '');
