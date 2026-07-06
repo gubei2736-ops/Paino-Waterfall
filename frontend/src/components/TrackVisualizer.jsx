@@ -528,8 +528,9 @@ export default function TrackVisualizer({
       const bubblesEnabled = effectsConfig && effectsConfig.bubbles;
       const waterCurrentEnabled = effectsConfig && effectsConfig.waterCurrent;
       const loveLetterEnabled = effectsConfig && effectsConfig.loveLetter;
+      const keyBlastEnabled = effectsConfig && effectsConfig.keyBlast;
 
-      if (bubblesEnabled || waterCurrentEnabled || loveLetterEnabled) {
+      if (bubblesEnabled || waterCurrentEnabled || loveLetterEnabled || keyBlastEnabled) {
         const nowMs = performance.now();
         const lastTime = lastFrameTimeRef.current || nowMs;
         const dtReal = Math.min((nowMs - lastTime) / 1000, 0.1);
@@ -672,6 +673,28 @@ export default function TrackVisualizer({
                   shape: Math.random() < 0.4 ? 'diamond' : 'crossStar',
                   angle: Math.random() * Math.PI * 2,
                   rotSpeed: -4.0 + Math.random() * 8.0,
+                });
+              }
+            }
+
+            // Initial key blast burst (premium particle fountain)
+            if (keyBlastEnabled) {
+              const particleCount = 20 + Math.floor(Math.random() * 10);
+              for (let i = 0; i < particleCount; i++) {
+                const angle = -Math.PI / 4 - Math.random() * Math.PI / 2; // upward cone
+                const speed = 100 + Math.random() * 200;
+                particlesRef.current.push({
+                  type: 'keyBlast',
+                  x: centerX,
+                  y: h - 4,
+                  vx: Math.cos(angle) * speed,
+                  vy: Math.sin(angle) * speed,
+                  ay: 350 + Math.random() * 200, // gravity pulling them down
+                  life: 0.3 + Math.random() * 0.5,
+                  maxLife: 0.8,
+                  size: 1.6 + Math.random() * 2.4,
+                  color: noteColor.start,
+                  sparkle: Math.random() > 0.4
                 });
               }
             }
@@ -839,6 +862,28 @@ export default function TrackVisualizer({
             } else {
               drawCrossStar(ctx, p.x, p.y, p.size, p.angle, p.color, alpha * 0.95);
             }
+            ctx.restore();
+          } else if (p.type === 'keyBlast') {
+            p.vy += p.ay * dtReal; // apply gravity
+            p.x += p.vx * dtReal;
+            p.y += p.vy * dtReal;
+            p.life -= dtReal;
+
+            const alpha = Math.max(0, p.life / p.maxLife);
+            
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            
+            const drawAlpha = p.sparkle && Math.sin(p.life * 45) < 0 ? alpha * 0.25 : alpha;
+            const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 2);
+            grad.addColorStop(0, '#ffffff');
+            grad.addColorStop(0.3, hexToRgba(p.color, drawAlpha));
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size * 2.5, 0, Math.PI * 2);
+            ctx.fill();
             ctx.restore();
           }
         });

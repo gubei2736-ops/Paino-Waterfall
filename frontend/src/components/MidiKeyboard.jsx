@@ -73,6 +73,24 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   const [volume, setVolume] = useState(0.5);
   const [reverbMix, setReverbMix] = useState(0.3);
   const [sustain, setSustain] = useState(false);
+  const [practiceMode, setPracticeMode] = useState(false);
+  const [waitingNotes, setWaitingNotes] = useState([]);
+
+  const practiceModeRef = useRef(practiceMode);
+  const waitingNotesRef = useRef(waitingNotes);
+  const activeNotesRef = useRef(activeNotes);
+
+  useEffect(() => {
+    practiceModeRef.current = practiceMode;
+    if (!practiceMode) {
+      setWaitingNotes([]);
+      waitingNotesRef.current = [];
+    }
+  }, [practiceMode]);
+
+  useEffect(() => {
+    activeNotesRef.current = activeNotes;
+  }, [activeNotes]);
 
   const [sustainShortcut, setSustainShortcut] = useState(() => {
     try {
@@ -111,12 +129,13 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
         bubbles: true,
         waterCurrent: true,
         loveLetter: true,
+        keyBlast: true,
         showNoteBars: true,
         noteBarsOpacity: 1.0,
         ...parsed
       };
     } catch (e) {
-      return { bubbles: true, waterCurrent: true, loveLetter: true, showNoteBars: true, noteBarsOpacity: 1.0 };
+      return { bubbles: true, waterCurrent: true, loveLetter: true, keyBlast: true, showNoteBars: true, noteBarsOpacity: 1.0 };
     }
   });
 
@@ -453,6 +472,8 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
         setParsedScore(parsed);
         notesRef.current = parsed.notes;
         setActiveTracks(parsed.tracks.map(t => t.id));
+        setWaitingNotes([]);
+        waitingNotesRef.current = [];
       } catch (err) {
         console.error('Failed to parse score content for playback:', err);
         setParsedScore(null);
@@ -476,6 +497,63 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
 
     const totalDur = parsedScore ? parsedScore.totalDuration : 0;
     let nextTime = currentTimeRef.current + elapsed * playbackRateRef.current;
+
+    // Practice Mode logic: wait for correct MIDI note triggers
+    if (practiceModeRef.current && parsedScore && notesRef.current.length > 0) {
+      const currentT = currentTimeRef.current;
+      let earliestFutureNoteTime = Infinity;
+      
+      // Find the earliest upcoming note start time
+      for (let i = 0; i < notesRef.current.length; i++) {
+        const note = notesRef.current[i];
+        if (activeTracksRef.current.includes(note.trackId) && note.time > currentT - 0.05) {
+          if (note.time < earliestFutureNoteTime) {
+            earliestFutureNoteTime = note.time;
+          }
+        }
+      }
+      
+      // If there's an upcoming note group within 0.12 seconds
+      if (earliestFutureNoteTime !== Infinity && earliestFutureNoteTime - currentT <= 0.12) {
+        const targetNotes = [];
+        for (let i = 0; i < notesRef.current.length; i++) {
+          const note = notesRef.current[i];
+          if (activeTracksRef.current.includes(note.trackId) && Math.abs(note.time - earliestFutureNoteTime) < 0.04) {
+            targetNotes.push(note.midi);
+          }
+        }
+        
+        const uniqueTargetNotes = [...new Set(targetNotes)];
+        
+        // Check if all notes in the upcoming group are pressed by the user
+        const allPressed = uniqueTargetNotes.every(midi => activeNotesRef.current.includes(midi));
+        
+        if (!allPressed) {
+          // Freeze timeline slightly before the notes hit the keyboard line
+          nextTime = Math.max(currentT, earliestFutureNoteTime - 0.015);
+          
+          if (JSON.stringify(waitingNotesRef.current) !== JSON.stringify(uniqueTargetNotes)) {
+            waitingNotesRef.current = uniqueTargetNotes;
+            setWaitingNotes(uniqueTargetNotes);
+          }
+        } else {
+          if (waitingNotesRef.current.length > 0) {
+            waitingNotesRef.current = [];
+            setWaitingNotes([]);
+          }
+        }
+      } else {
+        if (waitingNotesRef.current.length > 0) {
+          waitingNotesRef.current = [];
+          setWaitingNotes([]);
+        }
+      }
+    } else {
+      if (waitingNotesRef.current.length > 0) {
+        waitingNotesRef.current = [];
+        setWaitingNotes([]);
+      }
+    }
 
     // Loop end check
     if (nextTime >= totalDur) {
@@ -561,6 +639,8 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     isPlayingRef.current = false;
     cancelAnimationFrame(animationFrameRef.current);
     synthRef.current.stopAll();
+    setWaitingNotes([]);
+    waitingNotesRef.current = [];
   };
 
   const handleStop = () => {
@@ -572,6 +652,8 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     playbackActiveNotesRef.current = [];
     setPlaybackActiveNotes([]);
     synthRef.current.stopAll();
+    setWaitingNotes([]);
+    waitingNotesRef.current = [];
 
     const totalDur = parsedScore ? parsedScore.totalDuration : 0;
     if (progressSliderRef.current) progressSliderRef.current.value = 0;
@@ -1233,6 +1315,16 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                   <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>情书 (Love Letter)</span>
                 </label>
 
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
+                  <input 
+                    type="checkbox"
+                    checked={!!effectsConfig.keyBlast}
+                    onChange={() => setEffectsConfig(prev => ({ ...prev, keyBlast: !prev.keyBlast }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>爆炸粒子 (Key Blast)</span>
+                </label>
+
                 <div style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', paddingBottom: '4px', borderBottom: '1px solid var(--border-color)', marginTop: '8px', marginBottom: '6px' }}>
                   瀑布流长条设置
                 </div>
@@ -1629,7 +1721,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
           </div>
 
           <div className="controls-row">
-            <div className="play-buttons">
+            <div className="play-buttons" style={{ display: 'flex', gap: '8px' }}>
               {isPlaying ? (
                 <button className="btn btn-secondary btn-sm" onClick={handlePause}>
                   <Pause style={{ width: '14px', height: '14px' }} />
@@ -1641,6 +1733,24 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                   <span>播放</span>
                 </button>
               )}
+              <button 
+                className={`btn btn-sm ${practiceMode ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setPracticeMode(!practiceMode)}
+                disabled={!parsedScore}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: practiceMode ? 'var(--accent-color)' : '',
+                  borderColor: practiceMode ? 'var(--accent-color)' : '',
+                  color: practiceMode ? '#fff' : '',
+                  boxShadow: practiceMode ? '0 0 10px rgba(99, 102, 241, 0.3)' : 'none'
+                }}
+                title="开启后，播放将暂停等待您在MIDI键盘上弹奏正确的音符"
+              >
+                <Sparkles style={{ width: '14px', height: '14px' }} />
+                <span>跟弹模式</span>
+              </button>
             </div>
 
             <div className="control-slider-group">
@@ -1716,10 +1826,11 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
         <div className="piano-keys-container">
           {KEYS_88.map((key) => {
             const isPressed = mergedActiveNotes.includes(key.midi);
+            const isWaiting = waitingNotes.includes(key.midi);
             return (
               <div
                 key={key.midi}
-                className={`piano-key-full ${key.isBlack ? 'black' : 'white'} ${isPressed ? 'pressed' : ''}`}
+                className={`piano-key-full ${key.isBlack ? 'black' : 'white'} ${isPressed ? 'pressed' : ''} ${isWaiting ? 'waiting' : ''}`}
                 style={{
                   position: 'absolute',
                   left: `${key.left}%`,
