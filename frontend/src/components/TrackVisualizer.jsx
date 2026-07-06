@@ -250,11 +250,10 @@ export default function TrackVisualizer({
           const x = (key.left / 100) * w;
           const kw = (key.width / 100) * w;
           
-          // Use black key width for all note bars to make them uniform
-          const blackKeyWidthPercent = (100 / 52) * 0.65;
-          const targetWidth = (blackKeyWidthPercent / 100) * w;
+          // Scale note bar width proportionally based on current key width
+          const targetWidth = key.isBlack ? kw : kw * 0.65;
           const margin = 1.5;
-          const drawWidth = Math.max(1, targetWidth - margin * 2);
+          const drawWidth = Math.max(2, targetWidth - margin * 2);
           const drawX = x + kw / 2 - drawWidth / 2;
 
           // Downward layout math
@@ -358,11 +357,10 @@ export default function TrackVisualizer({
           const x = (key.left / 100) * w;
           const kw = (key.width / 100) * w;
 
-          // Use black key width for all note bars to make them uniform
-          const blackKeyWidthPercent = (100 / 52) * 0.65;
-          const targetWidth = (blackKeyWidthPercent / 100) * w;
+          // Scale note bar width proportionally based on current key width
+          const targetWidth = key.isBlack ? kw : kw * 0.65;
           const margin = 1.5;
-          const drawWidth = Math.max(1, targetWidth - margin * 2);
+          const drawWidth = Math.max(2, targetWidth - margin * 2);
           const drawX = x + kw / 2 - drawWidth / 2;
 
           // Upward layout math
