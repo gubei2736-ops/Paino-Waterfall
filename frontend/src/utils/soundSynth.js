@@ -517,11 +517,21 @@ class SoundSynth {
       source.playbackRate.value = pitchShiftFactor;
 
       const gainNode = this.ctx.createGain();
-      const velScale = (velocity / 127); // 0~1 linear velocity factor
+      // Perceptual velocity curve: exponential feels more natural than linear
+      const velScale = Math.pow(Math.max(velocity, 1) / 127, 0.7);
+      // Velocity-sensitive attack: loud = sharp (2ms), soft = rounded (20ms)
+      const attackTime = startTime + Math.max(0.002, 0.020 * (1 - velScale));
       gainNode.gain.setValueAtTime(0, startTime);
-      gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9 * velScale, startTime + 0.005);
+      gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.92 * velScale, attackTime);
 
-      source.connect(gainNode);
+      // Brightness filter: heavy touch → brighter (+dB highshelf), soft → warmer (-dB)
+      const brightnessFilter = this.ctx.createBiquadFilter();
+      brightnessFilter.type = 'highshelf';
+      brightnessFilter.frequency.value = 4000;
+      brightnessFilter.gain.value = (velScale - 0.5) * 12; // -6dB (pp) to +6dB (ff)
+
+      source.connect(brightnessFilter);
+      brightnessFilter.connect(gainNode);
       this._connectGain(gainNode);
 
       source.start(startTime);
@@ -555,16 +565,18 @@ class SoundSynth {
       oscFundamental.frequency.setValueAtTime(freq, startTime);
       oscHarmonic.frequency.setValueAtTime(freq * 2, startTime);
 
-      const velScale = (velocity / 127); // 0~1 linear velocity factor
+      const velScale = Math.pow(Math.max(velocity, 1) / 127, 0.7); // perceptual curve
+      // Velocity-sensitive attack time for synth path
+      const attackTime = startTime + Math.max(0.002, 0.018 * (1 - velScale));
       masterGain.gain.setValueAtTime(this.masterVolume * velScale, startTime);
 
       gainFundamental.gain.setValueAtTime(0, startTime);
-      gainFundamental.gain.linearRampToValueAtTime(0.5, startTime + 0.005);
+      gainFundamental.gain.linearRampToValueAtTime(0.5, attackTime);
       gainFundamental.gain.setValueAtTime(0.15, startTime + 0.15);
 
       gainHarmonic.gain.setValueAtTime(0, startTime);
-      gainHarmonic.gain.linearRampToValueAtTime(0.15, startTime + 0.01);
-      gainHarmonic.gain.setValueAtTime(0.15, startTime + 0.15);
+      gainHarmonic.gain.linearRampToValueAtTime(0.15 * velScale, attackTime);
+      gainHarmonic.gain.setValueAtTime(0.15 * velScale, startTime + 0.15);
 
       oscFundamental.connect(gainFundamental);
       oscHarmonic.connect(gainHarmonic);
@@ -690,7 +702,10 @@ class SoundSynth {
         const gainNode = this.ctx.createGain();
         
         // Define safe chronological times for the gain envelope to prevent RangeErrors
-        const peakTime = startTime + 0.005;
+        // Perceptual velocity curve + velocity-sensitive attack
+        const velScale = Math.pow(Math.max(velocity, 1) / 127, 0.7);
+        const attackDelta = Math.max(0.002, 0.018 * (1 - velScale));
+        const peakTime = startTime + attackDelta;
         let sustainStartTime, fadeEndTime;
         
         if (sustainActive) {
@@ -701,14 +716,20 @@ class SoundSynth {
           fadeEndTime = sustainStartTime + 0.1;
         }
         
-        // Gain envelope (velocity-scaled)
-        const velScale = velocity / 127;
+        // Gain envelope (perceptual velocity-scaled)
         gainNode.gain.setValueAtTime(0, startTime);
-        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9 * velScale, peakTime);
-        gainNode.gain.setValueAtTime(this.masterVolume * 0.9 * velScale, sustainStartTime);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.92 * velScale, peakTime);
+        gainNode.gain.setValueAtTime(this.masterVolume * 0.92 * velScale, sustainStartTime);
         gainNode.gain.exponentialRampToValueAtTime(0.0001, fadeEndTime);
 
-        source.connect(gainNode);
+        // Brightness filter: heavy touch → brighter, soft → warmer
+        const brightnessFilter = this.ctx.createBiquadFilter();
+        brightnessFilter.type = 'highshelf';
+        brightnessFilter.frequency.value = 4000;
+        brightnessFilter.gain.value = (velScale - 0.5) * 10;
+
+        source.connect(brightnessFilter);
+        brightnessFilter.connect(gainNode);
         this._connectGain(gainNode);
 
         source.start(startTime);
@@ -748,7 +769,7 @@ class SoundSynth {
         oscFundamental.frequency.setValueAtTime(freq, startTime);
         oscHarmonic.frequency.setValueAtTime(freq * 2, startTime);
 
-        masterGain.gain.setValueAtTime(this.masterVolume * (velocity / 127), startTime);
+        masterGain.gain.setValueAtTime(this.masterVolume * Math.pow(Math.max(velocity, 1) / 127, 0.7), startTime);
 
         // Define safe chronological times for the synth envelopes to prevent RangeErrors
         const peakTime = startTime + 0.005;
