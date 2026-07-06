@@ -177,7 +177,31 @@ export function parseMusicXml(xmlString) {
   // Sort notes sequentially by start time
   notesWithSeconds.sort((a, b) => a.time - b.time);
 
-  // Calculate total playing duration
+  // 4. Silence compression: remove gaps > 2s between notes
+  //    Scans notes in order; if the gap between the current note's start and
+  //    the furthest note-end seen so far (waveFront) exceeds the threshold,
+  //    the entire gap is trimmed and all subsequent note times shift earlier.
+  const SILENCE_THRESHOLD = 2.0; // seconds
+  let cumulativeTrim = 0;
+  let waveFront = 0; // max note end-time seen so far, in ORIGINAL time space
+
+  for (const note of notesWithSeconds) {
+    const origStart = note.time;
+    const gap = origStart - waveFront; // gap since last audible note ended
+
+    if (gap > SILENCE_THRESHOLD) {
+      cumulativeTrim += gap; // trim the entire gap
+    }
+
+    note.time = Math.max(0, origStart - cumulativeTrim);
+
+    const origEnd = origStart + note.duration;
+    if (origEnd > waveFront) {
+      waveFront = origEnd;
+    }
+  }
+
+  // Calculate total playing duration (after compression)
   let maxEndTime = 0;
   notesWithSeconds.forEach(n => {
     if (n.time + n.duration > maxEndTime) {
