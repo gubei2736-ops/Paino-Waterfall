@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
-import { injectNoteNamesToXml } from '../utils/xmlModifier';
 
-export default function ScoreViewer({ xmlContent, annotationMode, zoom, playbackTime, isPlaying, bpm, onNoteClick }) {
+export default function ScoreViewer({ xmlContent, zoom, playbackTime, isPlaying, bpm, onNoteClick }) {
   const containerRef = useRef(null);
   const osmdRef = useRef(null);
   const [loading, setLoading] = useState(false);
@@ -80,16 +79,8 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
       if (!active) return;
       
       try {
-        // Try 1: Load XML with note names injected
-        try {
-          console.log("[ScoreViewer] Attempting load with note names injected...");
-          const processedXml = injectNoteNamesToXml(xmlContent);
-          await osmdRef.current.load(processedXml);
-        } catch (injectErr) {
-          console.warn("[ScoreViewer] Failed to load with note names injected, falling back to original XML:", injectErr);
-          // Try 2: Fallback to original XML (without note name injection)
-          await osmdRef.current.load(xmlContent);
-        }
+        console.log("[ScoreViewer] Loading standard MusicXML...");
+        await osmdRef.current.load(xmlContent);
         
         if (!active) return;
         
@@ -119,7 +110,7 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
     };
   }, [xmlContent]);
 
-  // 3. Listen to rules change (Annotation Mode & Zoom)
+  // 3. Listen to rules change (Zoom)
   useEffect(() => {
     if (!osmdRef.current || !osmdRef.current.sheet) return;
     
@@ -134,7 +125,7 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
     } catch (err) {
       console.error('Error applying engraving rules:', err);
     }
-  }, [annotationMode, zoom]);
+  }, [zoom]);
 
   // 4. Playback Cursor Follow (without scrolling)
   useEffect(() => {
@@ -265,26 +256,6 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
 
     // Set Zoom Factor
     osmd.Zoom = zoom;
-
-    // Adjust lyric spacing rules to prevent horizontal collisions of note name labels
-    osmd.rules.BetweenSyllableMinimumDistance = 18.0; // Minimum horizontal distance between labels
-    osmd.rules.MaximumLyricsElongationFactor = 3.5;   // Allows measure width to expand to accommodate labels
-    osmd.rules.LyricsXPaddingFactorForLongLyrics = 4.0; // Additional horizontal padding for long labels
-
-    // Toggle rules based on annotationMode
-    // Modes: 'none', 'chords', 'notes', 'both'
-    switch (annotationMode) {
-      case 'none':
-        osmd.rules.RenderLyrics = false;
-        osmd.rules.RenderChordSymbols = false;
-        break;
-      case 'notes':
-        osmd.rules.RenderLyrics = true;
-        osmd.rules.RenderChordSymbols = false;
-        break;
-      default:
-        break;
-    }
   };
 
   return (

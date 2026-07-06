@@ -68,8 +68,7 @@ export default function App() {
     };
   }, [pdfUrl2]);
   
-  // Scoring parameters
-  const [annotationMode, setAnnotationMode] = useState('none'); // 'none', 'notes'
+
   const [midiScoreZoom, setMidiScoreZoom] = useState(0.7); // default 0.7 for split panel
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showMidiScore, setShowMidiScore] = useState(true);
@@ -500,22 +499,7 @@ export default function App() {
           </div>
 
           <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            {(xmlContent || xmlContent2) && (
-              <div className="toggle-group">
-                <button 
-                  className={`toggle-btn ${annotationMode === 'notes' ? 'active' : ''}`}
-                  onClick={() => setAnnotationMode('notes')}
-                >
-                  显示音名
-                </button>
-                <button 
-                  className={`toggle-btn ${annotationMode === 'none' ? 'active' : ''}`}
-                  onClick={() => setAnnotationMode('none')}
-                >
-                  无标注
-                </button>
-              </div>
-            )}
+
             <button
               className="btn btn-secondary btn-sm focus-mode-btn"
               onClick={() => setFocusMode(true)}
@@ -605,11 +589,10 @@ export default function App() {
                             />
                           )
                         ) : (
-                           <ScoreViewer 
-                             xmlContent={xmlContent} 
-                             annotationMode={annotationMode} 
-                             zoom={midiScoreZoom} 
-                             playbackTime={playbackTime}
+                            <ScoreViewer 
+                              xmlContent={xmlContent} 
+                              zoom={midiScoreZoom} 
+                              playbackTime={playbackTime}
                              isPlaying={isPlaying}
                              bpm={playbackBpm}
                              onNoteClick={handleScoreNoteClick}
@@ -646,11 +629,10 @@ export default function App() {
                             />
                           )
                         ) : (
-                           <ScoreViewer 
-                             xmlContent={xmlContent2} 
-                             annotationMode={annotationMode} 
-                             zoom={midiScoreZoom} 
-                             playbackTime={playbackTime}
+                            <ScoreViewer 
+                              xmlContent={xmlContent2} 
+                              zoom={midiScoreZoom} 
+                              playbackTime={playbackTime}
                              isPlaying={isPlaying}
                              bpm={playbackBpm}
                              onNoteClick={handleScoreNoteClick}
