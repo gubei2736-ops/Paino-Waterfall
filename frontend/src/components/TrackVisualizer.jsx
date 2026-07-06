@@ -1,6 +1,44 @@
 import React, { useRef, useEffect } from 'react';
 import { KEYS_88 } from '../utils/keyboardLayout';
 
+// Layout generator for dynamic visible key bounds (zoom & shift)
+export function getVisibleKeysLayout(visibleStartMidi, visibleEndMidi) {
+  const visibleKeys = KEYS_88.filter(k => k.midi >= visibleStartMidi && k.midi <= visibleEndMidi);
+  const whiteKeys = visibleKeys.filter(k => !k.isBlack);
+  const numWhiteKeys = whiteKeys.length;
+  if (numWhiteKeys === 0) return [];
+  const whiteWidth = 100 / numWhiteKeys;
+
+  const keyPositions = new Map();
+  let whiteIndex = 0;
+  visibleKeys.forEach(k => {
+    if (!k.isBlack) {
+      keyPositions.set(k.midi, { ...k, left: whiteIndex * whiteWidth, width: whiteWidth });
+      whiteIndex++;
+    }
+  });
+
+  visibleKeys.forEach(k => {
+    if (k.isBlack) {
+      const leftNeighbor = keyPositions.get(k.midi - 1);
+      const rightNeighbor = keyPositions.get(k.midi + 1);
+      let left;
+      const width = whiteWidth * 0.65;
+      if (leftNeighbor && rightNeighbor) {
+        left = (leftNeighbor.left + leftNeighbor.width) - width / 2;
+      } else if (rightNeighbor) {
+        left = rightNeighbor.left - width * 0.6;
+      } else if (leftNeighbor) {
+        left = leftNeighbor.left + leftNeighbor.width - width * 0.4;
+      } else {
+        left = 0;
+      }
+      keyPositions.set(k.midi, { ...k, left, width });
+    }
+  });
+  return visibleKeys.map(k => keyPositions.get(k.midi));
+}
+
 // Pre-compute lookup maps for O(1) performance
 const KEYS_MAP = new Map(KEYS_88.map(k => [k.midi, k]));
 const BLACK_KEYS_SET = new Set(KEYS_88.filter(k => k.isBlack).map(k => k.midi));
@@ -141,7 +179,9 @@ export default function TrackVisualizer({
   customColor4Enabled = false,
   customColor5Enabled = false,
   customColorDuration = 3.0,
-  effectsConfig = { bubbles: true }
+  effectsConfig = { bubbles: true },
+  visibleStartMidi = 21,
+  visibleEndMidi = 108
 }) {
   const canvasRef = useRef(null);
   const particlesRef = useRef([]);
@@ -191,6 +231,10 @@ export default function TrackVisualizer({
       const w = canvas.width / dpr;
       const h = canvas.height / dpr;
 
+      // Compute visible layout on the fly for positioning
+      const visibleKeys = getVisibleKeysLayout(visibleStartMidi, visibleEndMidi);
+      const visibleKeysMap = new Map(visibleKeys.map(k => [k.midi, k]));
+
       const noteBarsOpacity = (effectsConfig && effectsConfig.noteBarsOpacity !== undefined) ? effectsConfig.noteBarsOpacity : 1.0;
 
       const drawPlaybackNote = (note, T) => {
@@ -200,7 +244,7 @@ export default function TrackVisualizer({
         if (t_end >= T && t_start <= T + W) {
           if (!activeTracks.includes(note.trackId)) return;
 
-          const key = KEYS_MAP.get(note.midi);
+          const key = visibleKeysMap.get(note.midi);
           if (!key) return;
 
           const x = (key.left / 100) * w;
@@ -308,7 +352,7 @@ export default function TrackVisualizer({
 
         // Check if live note is within the float window W
         if (note.endTime === null || now - note.endTime <= W) {
-          const key = KEYS_MAP.get(note.midi);
+          const key = visibleKeysMap.get(note.midi);
           if (!key) return;
 
           const x = (key.left / 100) * w;
@@ -471,7 +515,7 @@ export default function TrackVisualizer({
       }
 
       // 1. Draw piano roll background columns
-      KEYS_88.forEach((key) => {
+      visibleKeys.forEach((key) => {
         const x = (key.left / 100) * w;
         const kw = (key.width / 100) * w;
 
@@ -601,7 +645,7 @@ export default function TrackVisualizer({
         };
 
         uniqueActiveMidis.forEach(midi => {
-          const key = KEYS_MAP.get(midi);
+          const key = visibleKeysMap.get(midi);
           if (!key) return;
 
           const x = (key.left / 100) * w;
@@ -941,6 +985,7 @@ export default function TrackVisualizer({
     playbackNotes, 
     liveNotes, 
     activeTracks, 
+    isPlaying,
     windowTime, 
     showNoteNames,
     customColorsEnabled,
@@ -956,7 +1001,9 @@ export default function TrackVisualizer({
     customColor4Enabled,
     customColor5Enabled,
     customColorDuration,
-    effectsConfig
+    effectsConfig,
+    visibleStartMidi,
+    visibleEndMidi
   ]);
 
   return (

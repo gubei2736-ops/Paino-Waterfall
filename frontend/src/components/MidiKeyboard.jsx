@@ -4,7 +4,7 @@ import { Play, Pause, Volume2, ListMusic, Sparkles } from 'lucide-react';
 import { KEYS_88 } from '../utils/keyboardLayout';
 import { parseMusicXml } from '../utils/musicXmlParser';
 import soundSynth from '../utils/soundSynth';
-import TrackVisualizer from './TrackVisualizer';
+import TrackVisualizer, { getVisibleKeysLayout } from './TrackVisualizer';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -79,6 +79,73 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   const practiceModeRef = useRef(practiceMode);
   const waitingNotesRef = useRef(waitingNotes);
   const activeNotesRef = useRef(activeNotes);
+
+  // Visible piano range states (zoom & shift) in Focus Mode
+  const [visibleStartMidi, setVisibleStartMidi] = useState(21); // default A0
+  const [visibleEndMidi, setVisibleEndMidi] = useState(108); // default C8
+
+  const zoomInKeys = () => {
+    const currentKeys = KEYS_88.filter(k => k.midi >= visibleStartMidi && k.midi <= visibleEndMidi);
+    const whiteKeys = currentKeys.filter(k => !k.isBlack);
+    if (whiteKeys.length <= 15) return; // limit minimum visibility (about 2 octaves)
+
+    const fullWhiteKeys = KEYS_88.filter(k => !k.isBlack);
+    const startIdx = fullWhiteKeys.findIndex(k => k.midi >= visibleStartMidi);
+    const endIdx = fullWhiteKeys.findIndex(k => k.midi >= visibleEndMidi);
+
+    if (startIdx !== -1 && endIdx !== -1 && endIdx - startIdx > 10) {
+      const newStartMidi = fullWhiteKeys[startIdx + 2].midi;
+      const newEndMidi = fullWhiteKeys[endIdx - 2].midi;
+      setVisibleStartMidi(newStartMidi);
+      setVisibleEndMidi(newEndMidi);
+    }
+  };
+
+  const zoomOutKeys = () => {
+    const fullWhiteKeys = KEYS_88.filter(k => !k.isBlack);
+    const startIdx = fullWhiteKeys.findIndex(k => k.midi >= visibleStartMidi);
+    const endIdx = fullWhiteKeys.findIndex(k => k.midi >= visibleEndMidi);
+
+    if (startIdx !== -1 && endIdx !== -1) {
+      const newStartIdx = Math.max(0, startIdx - 2);
+      const newEndIdx = Math.min(fullWhiteKeys.length - 1, endIdx + 2);
+      setVisibleStartMidi(fullWhiteKeys[newStartIdx].midi);
+      setVisibleEndMidi(fullWhiteKeys[newEndIdx].midi);
+    }
+  };
+
+  const shiftLeftKeys = () => {
+    const fullWhiteKeys = KEYS_88.filter(k => !k.isBlack);
+    const startIdx = fullWhiteKeys.findIndex(k => k.midi >= visibleStartMidi);
+    const endIdx = fullWhiteKeys.findIndex(k => k.midi >= visibleEndMidi);
+
+    if (startIdx > 0 && endIdx !== -1) {
+      const shiftAmt = Math.min(startIdx, 2);
+      const newStartIdx = startIdx - shiftAmt;
+      const newEndIdx = endIdx - shiftAmt;
+      setVisibleStartMidi(fullWhiteKeys[newStartIdx].midi);
+      setVisibleEndMidi(fullWhiteKeys[newEndIdx].midi);
+    }
+  };
+
+  const shiftRightKeys = () => {
+    const fullWhiteKeys = KEYS_88.filter(k => !k.isBlack);
+    const startIdx = fullWhiteKeys.findIndex(k => k.midi >= visibleStartMidi);
+    const endIdx = fullWhiteKeys.findIndex(k => k.midi >= visibleEndMidi);
+
+    if (startIdx !== -1 && endIdx < fullWhiteKeys.length - 1) {
+      const shiftAmt = Math.min(fullWhiteKeys.length - 1 - endIdx, 2);
+      const newStartIdx = startIdx + shiftAmt;
+      const newEndIdx = endIdx + shiftAmt;
+      setVisibleStartMidi(fullWhiteKeys[newStartIdx].midi);
+      setVisibleEndMidi(fullWhiteKeys[newEndIdx].midi);
+    }
+  };
+
+  const resetKeys = () => {
+    setVisibleStartMidi(21);
+    setVisibleEndMidi(108);
+  };
 
   useEffect(() => {
     practiceModeRef.current = practiceMode;
@@ -1051,8 +1118,74 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   }, []);
 
   // --- RENDER MIDI Test Workspace ---
+  const visibleKeys = getVisibleKeysLayout(visibleStartMidi, visibleEndMidi);
+
   return (
     <div className="midi-keyboard-full-container">
+      {/* Floating Keyboard Bounds Controls for Focus Mode */}
+      {focusMode && (
+        <div className="focus-controls-overlay" style={{
+          position: 'absolute',
+          top: '20px',
+          right: '20px',
+          zIndex: 1000,
+          display: 'flex',
+          gap: '8px',
+          backgroundColor: 'rgba(30, 41, 59, 0.75)',
+          backdropFilter: 'blur(8px)',
+          padding: '8px 12px',
+          borderRadius: '24px',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          alignItems: 'center',
+          fontFamily: '"Outfit", "Noto Sans SC", sans-serif'
+        }}>
+          <span style={{ fontSize: '11px', color: '#94a3b8', marginRight: '4px', userSelect: 'none' }}>键盘范围:</span>
+          
+          <button 
+            className="btn btn-secondary btn-sm"
+            onClick={zoomInKeys}
+            title="放大（显示更少按键，使其变宽）"
+            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            +
+          </button>
+          <button 
+            className="btn btn-secondary btn-sm"
+            onClick={zoomOutKeys}
+            title="缩小（显示更多按键，使其变窄）"
+            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            -
+          </button>
+          
+          <button 
+            className="btn btn-secondary btn-sm"
+            onClick={shiftLeftKeys}
+            title="向左移动键盘范围"
+            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', border: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            ◀
+          </button>
+          <button 
+            className="btn btn-secondary btn-sm"
+            onClick={shiftRightKeys}
+            title="向右移动键盘范围"
+            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', border: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            ▶
+          </button>
+          
+          <button 
+            className="btn btn-secondary btn-sm"
+            onClick={resetKeys}
+            title="恢复完整 88 键显示"
+            style={{ padding: '2px 8px', fontSize: '11px', height: '28px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            重置
+          </button>
+        </div>
+      )}
       {/* Top MIDI details and Chord Detection (Row 1) */}
       {!focusMode && (
         <div className="midi-status-bar">
@@ -1829,13 +1962,15 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
           customColor5Enabled={customColor5Enabled}
           customColorDuration={customColorDuration}
           effectsConfig={effectsConfig}
+          visibleStartMidi={visibleStartMidi}
+          visibleEndMidi={visibleEndMidi}
         />
       </div>
 
       {/* 88-Key piano keyboard (Row 4, absolute bottom of full container) */}
       <div className="piano-keyboard-wrapper">
         <div className="piano-keys-container">
-          {KEYS_88.map((key) => {
+          {visibleKeys.map((key) => {
             const isPressed = mergedActiveNotes.includes(key.midi);
             const isWaiting = waitingNotes.includes(key.midi);
             return (
