@@ -139,6 +139,8 @@ export function injectNoteNamesToXml(xmlString) {
             parsedNotes.push({ noteName, pitchVal });
           }
 
+          if (parsedNotes.length === 0) continue;
+
           // Sort by pitch value in descending order (highest pitch first, i.e., top to bottom)
           parsedNotes.sort((a, b) => b.pitchVal - a.pitchVal);
 

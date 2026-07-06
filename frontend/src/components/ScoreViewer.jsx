@@ -15,7 +15,7 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
       try {
         osmdRef.current = new OpenSheetMusicDisplay(containerRef.current, {
           autoResize: true,
-          backend: "canvas", // Use HTML5 Canvas to speed up rendering and lower DOM tree recalculation overhead
+          backend: "svg", // Use the highly compatible default SVG backend to avoid canvas drawing board size or vector exceptions with certain MusicXML layouts
           drawTitle: true,
           drawSubtitle: true,
           drawCredits: false,
