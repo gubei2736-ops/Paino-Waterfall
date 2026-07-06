@@ -888,18 +888,25 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   }, []);
 
   const handleMidiMessage = (event) => {
+    if (!event || !event.data) return;
     const [status, note, velocity] = event.data;
 
-    // Check for Sustain Pedal (CC 64)
-    const isCC = status === 176;
+    // Diagnostic console logging to help user check if MIDI signals are reaching the browser
+    console.log(`[MIDI Info] status=${status}, note=${note}, velocity=${velocity} (Channel: ${(status & 0x0F) + 1})`);
+
+    const msgType = status & 0xF0;
+
+    // Check for Sustain Pedal (CC 64) on any MIDI Channel (0xB0 to 0xBF)
+    const isCC = msgType === 0xB0;
     if (isCC && note === 64) {
       const pedalOn = velocity >= 64;
       setSustain(pedalOn);
       return;
     }
 
-    const isNoteOn = status === 144 && velocity > 0;
-    const isNoteOff = status === 128 || (status === 144 && velocity === 0);
+    // Support Note On (0x90) and Note Off (0x80) on any MIDI Channel
+    const isNoteOn = msgType === 0x90 && velocity > 0;
+    const isNoteOff = msgType === 0x80 || (msgType === 0x90 && velocity === 0);
 
     if (isNoteOn) {
       setActiveNotes(prev => {
