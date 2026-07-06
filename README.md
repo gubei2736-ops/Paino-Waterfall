@@ -1,6 +1,18 @@
 # 🎹 钢琴瀑布流与智能记谱系统 (Piano Waterfall & Sheet Music System)
 
-这是一个集成了**钢琴瀑布流可视化**、**五线谱交互播放**、**MIDI/电脑键盘演奏**以及**智能录音转译记谱**的现代化网页应用。项目去除了冗余的 AI 图像识别（OMR）模块，保留了纯净的基于 `music21` 的音频录制转译核心，提供轻量、高效的乐谱辅助教学体验。
+这是一个集成了**钢琴瀑布流可视化**、**五线谱交互播放**、**MIDI/电脑键盘演奏**以及**智能录音转译记谱**的智能化、专业级网页应用。系统提供了精美的毛玻璃暗黑界面、沉浸式空间混响声效以及为教学练习量身定制的辅助模式。
+
+---
+
+## 🌟 核心亮点与最新特性
+
+* **🎯 智能跟弹模式 (Practice Mode)**：乐谱播放至下落触键点时自动暂停等待，配合物理键盘**琥珀色呼吸灯提示**，弹对正确音符（支持和弦）后乐谱才会自动继续向下流动。
+* **🎆 爆炸粒子物理特效 (Key Blast)**：全新的音符击键视觉动效，音符触键瞬间产生向上喷射的发光粒子流，配合重力衰减、星光闪烁与多色混合。
+* **🎹 MIDI 对数力度与音色动态滤波 (Dynamic Velocity & Timbre)**：完美识别 MIDI 物理键盘击键力度，采用听觉对数感知音量曲线；同时引入动态滤波器，重击音色更明亮（高架滤波 +6dB 增益），轻弹音色更圆润，触键 Attack 时间可随力度动态调整。
+* **🎛️ 空间混响与总音量控制 (Reverb Depth & Master Volume)**：无缝融合至和弦识别区域中心，支持滑块调节殿堂级空间混响衰减深度与全局总音量。
+* **✂️ 乐谱时值静默压缩 (Auto Silence Compression)**：自动扫描 MusicXML 文件，若中间或末尾产生超过 2.0 秒的连续无声空白（常由 PDF 识别噪点引起），系统将自动裁剪该空白段并平移后续时间轴，避免播放等待。
+* **🎼 标准 MusicXML 直接渲染**：废弃了破坏文件兼容性的音名注入，改为将标准的 MusicXML 直接载入 OpenSheetMusicDisplay (OSMD) 渲染，支持平滑缩放、点击乐谱音符跳转定位播放。
+* **🎙️ 现场录音与转译记谱**：支持演奏录音，通过后端的 `music21` 核心自动将现场演奏的时值和音阶转译为标准 MIDI 或标准格式乐谱文件供下载。
 
 ---
 
@@ -17,13 +29,12 @@ Piano Waterfall/
 ├── frontend/                  # 前端项目 (Vite + React)
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── MidiKeyboard.jsx    # 钢琴主界面、控制栏与录音控制器
-│   │   │   ├── ScoreViewer.jsx     # OpenSheetMusicDisplay 五线谱渲染与光标跟随
-│   │   │   └── TrackVisualizer.jsx # HTML5 Canvas 钢琴瀑布流粒子与气泡动效
+│   │   │   ├── MidiKeyboard.jsx    # 钢琴主界面、控制栏、录音控制器与跟弹模式
+│   │   │   ├── ScoreViewer.jsx     # OSMD 五线谱渲染与播放光标跟随
+│   │   │   └── TrackVisualizer.jsx # Canvas 钢琴瀑布流与 Key Blast 等多种粒子动效
 │   │   ├── utils/
-│   │   │   ├── soundSynth.js       # Web Audio API 声音合成、混响与声部调度
-│   │   │   ├── xmlModifier.js      # MusicXML DOM 注入器，用于生成音名标注
-│   │   │   └── musicXmlParser.js   # 简易 MusicXML 解析与音轨数据提取
+│   │   │   ├── soundSynth.js       # Web Audio API 采样播放、动态混响、包络与滤波
+│   │   │   └── musicXmlParser.js   # 智能 MusicXML 解析、O(log M) 节拍时间转换与静默压缩
 │   │   ├── App.jsx                 # 前端应用入口，负责多谱分屏与状态协同
 │   │   └── index.css               # 全局 UI 样式与现代暗黑毛玻璃主题
 │   ├── public/                     # 静态资源 (采样音源)
@@ -35,8 +46,10 @@ Piano Waterfall/
 
 ---
 
-## 📥 克隆仓库后的本地安装与部署 (推荐)
+## 📥 本地部署与分发使用
 
+> 💡 **如果是直接压缩发给他人使用**：  
+> 他人解压后**无法直接双击运行**。因为项目中庞大的依赖库（如前端的 `node_modules`，后端的 `venv` 虚拟环境）出于体积优化原因均被排除了。接收方需要按照以下部署指南进行**一次性的初始化依赖安装**，之后即可通过 `start.bat` 一键运行。
 
 ### 前提条件
 * 本地已安装 [Node.js](https://nodejs.org/) (建议 v18+ 或更高版本)
@@ -44,7 +57,7 @@ Piano Waterfall/
 
 ---
 
-### 第一步：配置后端环境与依赖
+### 1. 配置后端环境与依赖
 1. 打开命令行，进入项目根目录的 `backend` 文件夹：
    ```bash
    cd backend
@@ -53,7 +66,7 @@ Piano Waterfall/
    ```bash
    python -m venv venv
    ```
-3. 激活虚拟环境并安装 Python 依赖库（主要是 FastAPI 和 music21）：
+3. 激活虚拟环境并安装 Python 依赖库：
    * **Windows 用户 (PowerShell / CMD)**：
      ```bash
      .\venv\Scripts\pip install -r requirements.txt
@@ -66,45 +79,31 @@ Piano Waterfall/
 
 ---
 
-### 第二步：配置前端依赖
+### 2. 配置前端依赖
 1. 打开另一个命令行窗口，进入项目根目录的 `frontend` 文件夹：
    ```bash
    cd frontend
    ```
-2. 安装 Node.js 依赖模块（这一步会自动生成 `node_modules` 文件夹）：
+2. 安装前端 Node 依赖包（会自动生成 `node_modules`）：
    ```bash
    npm install
    ```
 
 ---
 
-### 第三步：一键双端启动
-当上面两步的依赖都安装完毕后，之后每次运行项目，只需在项目根目录下**双击 `start.bat` 脚本**。
-脚本将会：
-1. 启动本地 FastAPI 后端服务（运行在 `http://localhost:8000`）
-2. 启动 Vite 前端开发服务器（运行在 `http://localhost:5173`）
-3. 自动在浏览器中打开应用页面。
+### 3. 一键双端启动
+依赖安装完毕后，之后每次运行项目，只需在项目根目录下**双击运行 `start.bat` 脚本**。  
+该脚本会自动：
+1. 启动 FastAPI 后端服务（端口 `http://localhost:8000`）
+2. 启动 Vite 前端开发服务器（端口 `http://localhost:5173`）
+3. 自动在系统默认浏览器中打开应用界面。
 
-*(如果你是 macOS/Linux 用户，也可以在各自目录手动运行 `python main.py` 和 `npm run dev` 启动项目。)*
+*(macOS/Linux 用户可通过终端在各自目录分别执行 `python main.py` 和 `npm run dev` 启动。)*
 
 ---
 
+## 🔧 二次开发与微调指南
 
-## 🔧 核心功能开发与修改指南
-
-如果您想针对特定模块进行二次开发或定制修改，请参照以下路径：
-
-### 1. 🎨 修改瀑布流视觉动效 (HTML5 Canvas)
-* **核心文件**：[`frontend/src/components/TrackVisualizer.jsx`](file:///F:/Paino%20Waterfall/frontend/src/components/TrackVisualizer.jsx)
-  * **落块颜色/渐变**：在 `drawPlaybackNote` 与 `drawLiveNote` 方法中修改 `ctx.fillStyle`。
-  * **气泡与粒子喷射**：在 `createNoteParticles` 或 `updateParticles` 调整粒子的衰减速度和喷射范围。
-
-### 2. 🎼 定制五线谱渲染与音名标注
-* **核心文件**：[`frontend/src/utils/xmlModifier.js`](file:///F:/Paino%20Waterfall/frontend/src/utils/xmlModifier.js) 和 [`frontend/src/components/ScoreViewer.jsx`](file:///F:/Paino%20Waterfall/frontend/src/components/ScoreViewer.jsx)
-  * **音名显示格式**：在 `xmlModifier.js` 中修改 DOMParser 注入 `lyric` 节点的音名文本逻辑。
-  * **五线谱渲染配置**：在 `ScoreViewer.jsx` 中调整 OpenSheetMusicDisplay 的缩放和定位参数。
-
-### 3. 🔊 声音合成器与混响调节
-* **核心文件**：[`frontend/src/utils/soundSynth.js`](file:///F:/Paino%20Waterfall/frontend/src/utils/soundSynth.js)
-  * **声音采样与包络**：在 `playNote` 中微调起音、衰减、释音等 ADSR 时序，或在 `public/salamander/` 中替换 WAV 乐器采样音频。
-  * **空间混响**：调整 `reverbMix` 增益来修改音效空间感。
+* **修改瀑布流与爆炸粒子**：前往 [`frontend/src/components/TrackVisualizer.jsx`](file:///F:/Paino%20Waterfall/frontend/src/components/TrackVisualizer.jsx)。可在 `p.type === 'keyBlast'` 中调整粒子喷射的引力、衰减速度或闪烁概率。
+* **修改声音合成、音色包络或混响属性**：前往 [`frontend/src/utils/soundSynth.js`](file:///F:/Paino%20Waterfall/frontend/src/utils/soundSynth.js) 中的 `playNote` 以及 `startNote`，可在 `BiquadFilterNode` 中配置不同的高低架增益曲线来定制专属声效。
+* **优化记谱解析器**：前往 [`frontend/src/utils/musicXmlParser.js`](file:///F:/Paino%20Waterfall/frontend/src/utils/musicXmlParser.js)，修改 `convertBeatsToSeconds` 二分法算法或调整静默裁剪阈值 `SILENCE_THRESHOLD`。
