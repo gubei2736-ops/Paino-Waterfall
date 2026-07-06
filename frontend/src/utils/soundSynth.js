@@ -455,7 +455,7 @@ class SoundSynth {
     return this.buffers.size;
   }
 
-  startNote(midi, trackId = 0) {
+  startNote(midi, trackId = 0, velocity = 100) {
     this.init();
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
@@ -494,8 +494,9 @@ class SoundSynth {
       source.playbackRate.value = pitchShiftFactor;
 
       const gainNode = this.ctx.createGain();
+      const velScale = (velocity / 127); // 0~1 linear velocity factor
       gainNode.gain.setValueAtTime(0, startTime);
-      gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9, startTime + 0.005);
+      gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9 * velScale, startTime + 0.005);
 
       source.connect(gainNode);
       if (this.dryGainNode) {
@@ -538,7 +539,8 @@ class SoundSynth {
       oscFundamental.frequency.setValueAtTime(freq, startTime);
       oscHarmonic.frequency.setValueAtTime(freq * 2, startTime);
 
-      masterGain.gain.setValueAtTime(this.masterVolume, startTime);
+      const velScale = (velocity / 127); // 0~1 linear velocity factor
+      masterGain.gain.setValueAtTime(this.masterVolume * velScale, startTime);
 
       gainFundamental.gain.setValueAtTime(0, startTime);
       gainFundamental.gain.linearRampToValueAtTime(0.5, startTime + 0.005);

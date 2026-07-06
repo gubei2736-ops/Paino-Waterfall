@@ -417,7 +417,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
 
         // Initialize and play synth note
         synthRef.current.init();
-        synthRef.current.startNote(midiNum, 0);
+        synthRef.current.startNote(midiNum, 0, 100);
         
         // Feed note to live visualizer
         addLiveNote(midiNum);
@@ -750,7 +750,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
       });
       // Physical key click triggers synth sound immediately
       synthRef.current.init();
-      synthRef.current.startNote(note, 0);
+      synthRef.current.startNote(note, 0, velocity);
       
       // Feed note to live visualizer
       addLiveNote(note);
@@ -781,7 +781,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   // 5. On-screen key click handler (manual test playing)
   const handleKeyClick = (midiNum) => {
     synthRef.current.init();
-    synthRef.current.startNote(midiNum, 0);
+    synthRef.current.startNote(midiNum, 0, 100);
 
     const now = performance.now() / 1000;
     
