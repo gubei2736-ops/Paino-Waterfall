@@ -12,7 +12,7 @@ export function injectNoteNamesToXml(xmlString) {
     // Strip BOM, trim, and remove DOCTYPE declaration to avoid DOMParser parsererror in browser
     const cleanXml = xmlString.replace(/^\uFEFF/, '').trim().replace(/<!DOCTYPE\s+[^>\[]*(?:\[[\s\S]*?\])?\s*>/gi, '');
     const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(cleanXml, 'application/xml');
+    const xmlDoc = parser.parseFromString(cleanXml, 'text/xml');
     
     // Check parser errors
     const parserError = xmlDoc.getElementsByTagName('parsererror')[0];

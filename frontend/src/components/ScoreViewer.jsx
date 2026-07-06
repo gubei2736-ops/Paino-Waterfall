@@ -80,13 +80,25 @@ export default function ScoreViewer({ xmlContent, annotationMode, zoom, playback
       if (!active) return;
       
       try {
-        // Inject note names into XML before loading into OSMD
-        const processedXml = injectNoteNamesToXml(xmlContent);
+        // Try 1: Load XML with note names injected
+        try {
+          console.log("[ScoreViewer] Attempting load with note names injected...");
+          const processedXml = injectNoteNamesToXml(xmlContent);
+          await osmdRef.current.load(processedXml);
+        } catch (injectErr) {
+          console.warn("[ScoreViewer] Failed to load with note names injected, falling back to original XML:", injectErr);
+          // Try 2: Fallback to original XML (without note name injection)
+          await osmdRef.current.load(xmlContent);
+        }
         
-        await osmdRef.current.load(processedXml);
         if (!active) return;
         
-        applyRules();
+        try {
+          applyRules();
+        } catch (ruleErr) {
+          console.warn("[ScoreViewer] Failed to apply engraving rules, rendering anyway:", ruleErr);
+        }
+
         osmdRef.current.render();
         
         if (osmdRef.current.cursor) {
