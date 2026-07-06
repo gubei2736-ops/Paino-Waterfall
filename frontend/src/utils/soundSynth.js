@@ -158,6 +158,7 @@ class SoundSynth {
     this.dryGainNode = null;
     this.wetGainNode = null;
     this.convolverNode = null;
+    this._cleanupInterval = null; // periodic activeSources cleanup timer
   }
 
   addProgressListener(cb) {
@@ -228,6 +229,16 @@ class SoundSynth {
     this.dryGainNode.connect(this.ctx.destination);
     this.convolverNode.connect(this.wetGainNode);
     this.wetGainNode.connect(this.ctx.destination);
+    
+    // Start periodic cleanup of finished sources (every 2s) instead of per-playNote filter
+    if (!this._cleanupInterval) {
+      this._cleanupInterval = setInterval(() => {
+        if (this.ctx) {
+          const now = this.ctx.currentTime;
+          this.activeSources = this.activeSources.filter(s => s.stopTime > now);
+        }
+      }, 2000);
+    }
     
     this.preloadSamples();
   }
@@ -301,6 +312,18 @@ class SoundSynth {
 
   setVolume(vol) {
     this.masterVolume = Math.max(0, Math.min(1, vol));
+  }
+
+  // Shared helper: connect a gainNode into the reverb/dry signal graph
+  _connectGain(gainNode) {
+    if (this.dryGainNode) {
+      gainNode.connect(this.dryGainNode);
+      if (this.convolverNode) {
+        gainNode.connect(this.convolverNode);
+      }
+    } else {
+      gainNode.connect(this.ctx.destination);
+    }
   }
 
   async preloadSamples() {
@@ -499,14 +522,7 @@ class SoundSynth {
       gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9 * velScale, startTime + 0.005);
 
       source.connect(gainNode);
-      if (this.dryGainNode) {
-        gainNode.connect(this.dryGainNode);
-        if (this.convolverNode) {
-          gainNode.connect(this.convolverNode);
-        }
-      } else {
-        gainNode.connect(this.ctx.destination);
-      }
+      this._connectGain(gainNode);
 
       source.start(startTime);
 
@@ -556,14 +572,7 @@ class SoundSynth {
       gainFundamental.connect(masterGain);
       gainHarmonic.connect(masterGain);
       
-      if (this.dryGainNode) {
-        masterGain.connect(this.dryGainNode);
-        if (this.convolverNode) {
-          masterGain.connect(this.convolverNode);
-        }
-      } else {
-        masterGain.connect(this.ctx.destination);
-      }
+      this._connectGain(masterGain);
 
       oscFundamental.start(startTime);
       oscHarmonic.start(startTime);
@@ -654,7 +663,7 @@ class SoundSynth {
     }
   }
 
-  playNote(midi, duration, startTime, trackId = 0) {
+  playNote(midi, duration, startTime, trackId = 0, velocity = 100) {
     try {
       this.init();
       if (this.ctx.state === 'suspended') {
@@ -692,21 +701,15 @@ class SoundSynth {
           fadeEndTime = sustainStartTime + 0.1;
         }
         
-        // Gain envelope
+        // Gain envelope (velocity-scaled)
+        const velScale = velocity / 127;
         gainNode.gain.setValueAtTime(0, startTime);
-        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9, peakTime);
-        gainNode.gain.setValueAtTime(this.masterVolume * 0.9, sustainStartTime);
+        gainNode.gain.linearRampToValueAtTime(this.masterVolume * 0.9 * velScale, peakTime);
+        gainNode.gain.setValueAtTime(this.masterVolume * 0.9 * velScale, sustainStartTime);
         gainNode.gain.exponentialRampToValueAtTime(0.0001, fadeEndTime);
 
         source.connect(gainNode);
-        if (this.dryGainNode) {
-          gainNode.connect(this.dryGainNode);
-          if (this.convolverNode) {
-            gainNode.connect(this.convolverNode);
-          }
-        } else {
-          gainNode.connect(this.ctx.destination);
-        }
+        this._connectGain(gainNode);
 
         source.start(startTime);
         source.stop(fadeEndTime + 0.05);
@@ -720,7 +723,6 @@ class SoundSynth {
         };
 
         this.activeSources.push(sourceObj);
-        this.activeSources = this.activeSources.filter(s => s.stopTime > this.ctx.currentTime);
       } else {
         // SYNTHESIZER FALLBACK
         const freq = Math.pow(2, (midi - 69) / 12) * 440;
@@ -746,7 +748,7 @@ class SoundSynth {
         oscFundamental.frequency.setValueAtTime(freq, startTime);
         oscHarmonic.frequency.setValueAtTime(freq * 2, startTime);
 
-        masterGain.gain.setValueAtTime(this.masterVolume, startTime);
+        masterGain.gain.setValueAtTime(this.masterVolume * (velocity / 127), startTime);
 
         // Define safe chronological times for the synth envelopes to prevent RangeErrors
         const peakTime = startTime + 0.005;
@@ -777,14 +779,7 @@ class SoundSynth {
         gainFundamental.connect(masterGain);
         gainHarmonic.connect(masterGain);
         
-        if (this.dryGainNode) {
-          masterGain.connect(this.dryGainNode);
-          if (this.convolverNode) {
-            masterGain.connect(this.convolverNode);
-          }
-        } else {
-          masterGain.connect(this.ctx.destination);
-        }
+        this._connectGain(masterGain);
 
         oscFundamental.start(startTime);
         oscHarmonic.start(startTime);
@@ -803,7 +798,6 @@ class SoundSynth {
         };
 
         this.activeSources.push(sourceObj);
-        this.activeSources = this.activeSources.filter(s => s.stopTime > this.ctx.currentTime);
       }
     } catch (err) {
       console.error("Error in SoundSynth.playNote:", err);

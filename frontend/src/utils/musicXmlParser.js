@@ -1,6 +1,13 @@
 /**
  * Helper to parse MusicXML and extract note event list for playback and visualization.
  */
+
+// Dynamics marking -> MIDI velocity mapping (standard values)
+const DYNAMICS_VELOCITY = {
+  ppp: 16, pp: 33, p: 49, mp: 64, mf: 80, f: 96, ff: 112, fff: 127,
+  fp: 64, sfz: 112, sf: 96, fz: 96, rfz: 96
+};
+
 export function parseMusicXml(xmlString) {
   // Strip BOM, trim, and remove DOCTYPE declaration to avoid DOMParser parsererror in browser
   const cleanXml = xmlString.replace(/^\uFEFF/, '').trim().replace(/<!DOCTYPE\s+[^>\[]*(?:\[[\s\S]*?\])?\s*>/gi, '');
@@ -29,7 +36,7 @@ export function parseMusicXml(xmlString) {
   const allNotes = [];
   const tempoChanges = [{ beat: 0, bpm: 120 }]; // Default tempo 120 BPM
 
-  // 2. Parse notes and tempo changes from each part
+  // 2. Parse notes, tempo changes and dynamics from each part
   parts.forEach((part) => {
     const partIdAttr = part.getAttribute('id');
     // Assign a fallback ID if not declared in part-list
@@ -39,10 +46,11 @@ export function parseMusicXml(xmlString) {
     const partInfo = partMap[partIdAttr] || { id: 0, name: '主轨道' };
     const trackId = partInfo.id;
     
-    let currentTime = 0; // divisions counter
+    let currentTime = 0;      // divisions counter
     let currentDivisions = 1;
     let lastNoteTime = 0;
     let lastNoteDuration = 0;
+    let currentDynamics = 80; // default mf velocity
 
     const measures = part.querySelectorAll('measure');
     measures.forEach((measure) => {
@@ -57,6 +65,7 @@ export function parseMusicXml(xmlString) {
             currentDivisions = parseInt(divNode.textContent, 10) || 1;
           }
         } else if (nodeName === 'direction') {
+          // Parse tempo changes
           const soundNode = child.querySelector('sound');
           if (soundNode) {
             const tempo = soundNode.getAttribute('tempo');
@@ -64,6 +73,23 @@ export function parseMusicXml(xmlString) {
               const bpm = parseFloat(tempo);
               const beat = currentTime / currentDivisions;
               tempoChanges.push({ beat, bpm });
+            }
+            // Parse dynamics from <sound dynamics="N"> attribute (0–127 or percentage)
+            const dynAttr = soundNode.getAttribute('dynamics');
+            if (dynAttr !== null) {
+              const dynVal = parseFloat(dynAttr);
+              if (!isNaN(dynVal)) {
+                // MusicXML dynamics attribute is a percentage of ff (90); scale to 0~127
+                currentDynamics = Math.max(1, Math.min(127, Math.round(dynVal * 127 / 90)));
+              }
+            }
+          }
+          // Parse dynamics from <dynamics> marking element (ppp/pp/p/mp/mf/f/ff/fff)
+          const dynNode = child.querySelector('dynamics');
+          if (dynNode && dynNode.children.length > 0) {
+            const markingName = dynNode.children[0].nodeName.toLowerCase();
+            if (DYNAMICS_VELOCITY[markingName] !== undefined) {
+              currentDynamics = DYNAMICS_VELOCITY[markingName];
             }
           }
         } else if (nodeName === 'backup') {
@@ -112,6 +138,7 @@ export function parseMusicXml(xmlString) {
                   beatStart: noteStart / currentDivisions,
                   beatDuration: duration / currentDivisions,
                   trackId,
+                  velocity: currentDynamics, // carry current dynamics into note
                 });
               }
             }
@@ -141,26 +168,33 @@ export function parseMusicXml(xmlString) {
     }
   });
 
-  // Helper to convert beat counts to absolute seconds
-  const convertBeatsToSeconds = (beat) => {
-    let timeSeconds = 0;
-    let currentBpm = 120;
-    let currentBeat = 0;
-    
+  // Pre-compute cumulative time at the start of each tempo segment for O(log M) beat→second lookup
+  const tempoSegments = [];
+  {
+    let accTime = 0;
+    let prevBeat = 0;
+    let prevBpm = 120;
     for (const tc of uniqueTempoChanges) {
-      if (tc.beat > beat) break;
-      const beatsElapsed = tc.beat - currentBeat;
-      timeSeconds += beatsElapsed * (60 / currentBpm);
-      currentBeat = tc.beat;
-      currentBpm = tc.bpm;
+      accTime += (tc.beat - prevBeat) * (60 / prevBpm);
+      tempoSegments.push({ beat: tc.beat, bpm: tc.bpm, timeAtBeat: accTime });
+      prevBeat = tc.beat;
+      prevBpm = tc.bpm;
     }
-    
-    const beatsRemaining = beat - currentBeat;
-    timeSeconds += beatsRemaining * (60 / currentBpm);
-    return timeSeconds;
+  }
+
+  // O(log M) beat-to-seconds converter using binary search over tempoSegments
+  const convertBeatsToSeconds = (beat) => {
+    let lo = 0, hi = tempoSegments.length - 1, segIdx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (tempoSegments[mid].beat <= beat) { segIdx = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    const seg = tempoSegments[segIdx];
+    return seg.timeAtBeat + (beat - seg.beat) * (60 / seg.bpm);
   };
 
-  // 3. Map notes to absolute time in seconds
+  // 3. Map notes to absolute time in seconds, preserving velocity
   const notesWithSeconds = allNotes.map(n => {
     const time = convertBeatsToSeconds(n.beatStart);
     const endTime = convertBeatsToSeconds(n.beatStart + n.beatDuration);
@@ -170,7 +204,8 @@ export function parseMusicXml(xmlString) {
       midi: n.midi,
       time,
       duration: duration > 0 ? duration : 0.1, // Ensure all notes have a playing duration
-      trackId: n.trackId
+      trackId: n.trackId,
+      velocity: n.velocity,                     // dynamics-derived velocity (1~127)
     };
   });
 

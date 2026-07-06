@@ -27,24 +27,10 @@ const COMPUTER_KEY_MAP = {
   'p': 75  // D#5
 };
 
-const MIDI_TO_KEY_LABEL = {
-  60: 'A',
-  61: 'W',
-  62: 'S',
-  63: 'E',
-  64: 'D',
-  65: 'F',
-  66: 'T',
-  67: 'G',
-  68: 'Y',
-  69: 'H',
-  70: 'U',
-  71: 'J',
-  72: 'K',
-  73: 'O',
-  74: 'L',
-  75: 'P'
-};
+// Derived automatically from COMPUTER_KEY_MAP to avoid duplicate maintenance
+const MIDI_TO_KEY_LABEL = Object.fromEntries(
+  Object.entries(COMPUTER_KEY_MAP).map(([key, midi]) => [midi, key.toUpperCase()])
+);
 
 const areArraysEqual = (a, b) => {
   if (a.length !== b.length) return false;
@@ -528,7 +514,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
             const audioStartTime = synth.ctx 
               ? (synth.ctx.currentTime + delay / playbackRateRef.current) 
               : 0;
-            synth.playNote(note.midi, note.duration, audioStartTime, note.trackId);
+            synth.playNote(note.midi, note.duration, audioStartTime, note.trackId, note.velocity ?? 100);
           }
         }
       }
