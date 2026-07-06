@@ -1792,13 +1792,13 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
       )}
 
       {!focusMode && (
-        <div className="chord-display-hero" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 24px' }}>
-          <div className="chord-name-large" style={{ minWidth: '150px' }}>
+        <div className="chord-display-hero" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '10px 24px' }}>
+          <div className="chord-name-large" style={{ textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {detectedChord ? detectedChord : '检测和弦...'}
           </div>
 
           {/* Combined Sliders in the Middle */}
-          <div className="chord-hero-sliders" style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+          <div className="chord-hero-sliders" style={{ display: 'flex', alignItems: 'center', gap: '24px', justifyContent: 'center' }}>
             {/* Volume Slider */}
             <div className="control-slider-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Volume2 style={{ width: '13px', height: '13px', color: 'var(--text-secondary)' }} />
@@ -1838,7 +1838,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
             </div>
           </div>
 
-          <div className="active-notes-list" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', minWidth: '150px' }}>
+          <div className="active-notes-list" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', overflow: 'hidden' }}>
             {mergedActiveNotes.length > 0 ? (
               mergedActiveNotes.map(m => (
                 <span key={m} className="note-pill">
