@@ -130,12 +130,13 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
         waterCurrent: true,
         loveLetter: true,
         keyBlast: true,
+        barBreathing: false,
         showNoteBars: true,
         noteBarsOpacity: 1.0,
         ...parsed
       };
     } catch (e) {
-      return { bubbles: true, waterCurrent: true, loveLetter: true, keyBlast: true, showNoteBars: true, noteBarsOpacity: 1.0 };
+      return { bubbles: true, waterCurrent: true, loveLetter: true, keyBlast: true, barBreathing: false, showNoteBars: true, noteBarsOpacity: 1.0 };
     }
   });
 
@@ -1323,6 +1324,16 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                     style={{ cursor: 'pointer' }}
                   />
                   <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>爆炸粒子 (Key Blast)</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
+                  <input 
+                    type="checkbox"
+                    checked={!!effectsConfig.barBreathing}
+                    onChange={() => setEffectsConfig(prev => ({ ...prev, barBreathing: !prev.barBreathing }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>长条呼吸灯 (Breathing Bars)</span>
                 </label>
 
                 <div style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', paddingBottom: '4px', borderBottom: '1px solid var(--border-color)', marginTop: '8px', marginBottom: '6px' }}>

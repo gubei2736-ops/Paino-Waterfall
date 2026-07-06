@@ -225,9 +225,15 @@ export default function TrackVisualizer({
           grad.addColorStop(0, colorPair.start);
           grad.addColorStop(1, colorPair.end);
 
-          if (noteBarsOpacity > 0.01) {
+          let finalAlpha = noteBarsOpacity;
+          if (effectsConfig && effectsConfig.barBreathing) {
+            const breathFactor = 0.65 + 0.35 * Math.sin(performance.now() / 350);
+            finalAlpha *= breathFactor;
+          }
+
+          if (finalAlpha > 0.01) {
             ctx.save();
-            ctx.globalAlpha = noteBarsOpacity;
+            ctx.globalAlpha = finalAlpha;
 
             // Draw note bar
             ctx.fillStyle = grad;
@@ -329,9 +335,15 @@ export default function TrackVisualizer({
           grad.addColorStop(0, colorPair.end);
           grad.addColorStop(1, colorPair.start);
 
-          if (noteBarsOpacity > 0.01) {
+          let finalAlpha = noteBarsOpacity;
+          if (effectsConfig && effectsConfig.barBreathing) {
+            const breathFactor = 0.65 + 0.35 * Math.sin(performance.now() / 350);
+            finalAlpha *= breathFactor;
+          }
+
+          if (finalAlpha > 0.01) {
             ctx.save();
-            ctx.globalAlpha = noteBarsOpacity;
+            ctx.globalAlpha = finalAlpha;
 
             ctx.fillStyle = grad;
             const radius = Math.min(drawWidth / 2, 4);
