@@ -98,6 +98,11 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     } catch (e) {}
   }, [showNoteNames]);
 
+  const handleMidiMessageRef = useRef(null);
+  useEffect(() => {
+    handleMidiMessageRef.current = handleMidiMessage;
+  });
+
   const [effectsConfig, setEffectsConfig] = useState(() => {
     try {
       const saved = localStorage.getItem('waterfall_effects_config');
@@ -677,12 +682,11 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     const onMIDISuccess = (midiAccess) => {
       midiAccessRef = midiAccess;
       updateDevices(midiAccess);
-      
-      for (const input of midiAccess.inputs.values()) {
-        input.onmidimessage = handleMidiMessage;
-      }
 
-      midiAccess.onstatechange = () => {
+      midiAccess.onstatechange = (e) => {
+        if (e.port) {
+          console.log(`MIDI port state change: [${e.port.name}] is now state=[${e.port.state}], connection=[${e.port.connection}]`);
+        }
         updateDevices(midiAccess);
       };
     };
@@ -699,7 +703,25 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
       setMidiDevices(devices);
       
       for (const input of midiAccess.inputs.values()) {
-        input.onmidimessage = handleMidiMessage;
+        const stableHandler = (event) => {
+          if (handleMidiMessageRef.current) {
+            handleMidiMessageRef.current(event);
+          }
+        };
+
+        // Explicitly open the input port to make MIDI connection robust on Windows/Chrome
+        if (input.connection !== 'open') {
+          input.open()
+            .then(() => {
+              input.onmidimessage = stableHandler;
+            })
+            .catch(err => {
+              console.warn(`Failed to explicitly open MIDI input port [${input.name}]:`, err);
+              input.onmidimessage = stableHandler; // fallback binding
+            });
+        } else {
+          input.onmidimessage = stableHandler;
+        }
       }
     };
 
@@ -909,9 +931,33 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     setLiveNotes([]);
   };
 
-  // Cleanup synthesizer on component unmount
+  // Cleanup synthesizer on component unmount & Resume AudioContext on initial page interaction
   useEffect(() => {
+    const resumeAudio = () => {
+      // Pre-initialize and resume soundfont player on user gestures
+      soundSynth.init();
+      if (soundSynth.ctx && soundSynth.ctx.state === 'suspended') {
+        soundSynth.ctx.resume().then(() => {
+          console.log("Web AudioContext successfully resumed via user interaction.");
+          cleanupInteractionListeners();
+        });
+      } else if (soundSynth.ctx && soundSynth.ctx.state === 'running') {
+        cleanupInteractionListeners();
+      }
+    };
+
+    const cleanupInteractionListeners = () => {
+      document.removeEventListener('click', resumeAudio);
+      document.removeEventListener('keydown', resumeAudio);
+      document.removeEventListener('touchstart', resumeAudio);
+    };
+
+    document.addEventListener('click', resumeAudio);
+    document.addEventListener('keydown', resumeAudio);
+    document.addEventListener('touchstart', resumeAudio);
+
     return () => {
+      cleanupInteractionListeners();
       cancelAnimationFrame(animationFrameRef.current);
       synthRef.current.stopAll();
       if (metronomeIntervalRef.current) {
