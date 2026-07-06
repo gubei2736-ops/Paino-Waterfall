@@ -772,6 +772,54 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  // Convert hex color to rgba for transparency overlay
+  const hexToRgba = (hex, alpha) => {
+    if (!hex) return `rgba(255, 255, 255, ${alpha})`;
+    if (hex.startsWith('rgba')) {
+      return hex.replace(/[\d\.]+\)$/, `${alpha})`);
+    }
+    if (hex.startsWith('rgb')) {
+      return hex.replace('rgb', 'rgba').replace(')', `, ${alpha})`);
+    }
+    const c = hex.replace('#', '');
+    const r = parseInt(c.substring(0, 2), 16);
+    const g = parseInt(c.substring(2, 4), 16);
+    const b = parseInt(c.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  // Resolve visualizer note color matches for active keys
+  const getActiveKeyColor = (midi) => {
+    const TRACK_COLORS = [
+      { start: '#6366f1', end: '#8b5cf6' }, // Indigo -> Violet
+      { start: '#ec4899', end: '#f43f5e' }, // Pink -> Rose
+      { start: '#06b6d4', end: '#0891b2' }, // Cyan -> Dark Cyan
+      { start: '#10b981', end: '#059669' }, // Emerald -> Green
+      { start: '#f59e0b', end: '#d97706' }, // Amber -> Orange
+    ];
+
+    if (customColorsEnabled) {
+      return { start: customColor1 || '#ff007f', end: customColor2 || '#7f00ff' };
+    }
+
+    if (activeNotes.includes(midi)) {
+      return { start: '#00f2fe', end: '#4facfe' }; // Cyan to blue for live hand play
+    }
+
+    if (parsedScore && parsedScore.notes) {
+      const T = currentTimeRef.current;
+      for (let i = 0; i < parsedScore.notes.length; i++) {
+        const note = parsedScore.notes[i];
+        if (note.midi === midi && T >= note.time && T <= note.time + note.duration && activeTracks.includes(note.trackId)) {
+          const idx = note.trackId % TRACK_COLORS.length;
+          return TRACK_COLORS[idx];
+        }
+      }
+    }
+
+    return { start: '#6366f1', end: '#8b5cf6' };
+  };
+
   // 3. Web MIDI Connection & Live Notes manager
   const addLiveNote = (midi) => {
     const now = performance.now() / 1000;
@@ -1980,15 +2028,33 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
           {visibleKeys.map((key) => {
             const isPressed = mergedActiveNotes.includes(key.midi);
             const isWaiting = waitingNotes.includes(key.midi);
+            
+            // Resolve custom note color and aura glow dynamically if pressed
+            const colorPair = isPressed ? getActiveKeyColor(key.midi) : null;
+            
+            const customStyle = {
+              position: 'absolute',
+              left: `${key.left}%`,
+              width: `${key.width}%`
+            };
+
+            if (isPressed && colorPair) {
+              if (key.isBlack) {
+                customStyle.background = `linear-gradient(to bottom, #161622 0%, ${colorPair.start} 100%)`;
+                customStyle.boxShadow = `0 3px 14px ${hexToRgba(colorPair.start, 0.75)}, inset 0 1px 1px rgba(255, 255, 255, 0.2)`;
+                customStyle.borderColor = colorPair.start;
+              } else {
+                customStyle.background = `linear-gradient(to bottom, #ffffff 0%, ${hexToRgba(colorPair.start, 0.18)} 60%, ${colorPair.start} 100%)`;
+                customStyle.boxShadow = `0 4px 16px ${hexToRgba(colorPair.start, 0.65)}, inset 0 0 6px ${hexToRgba(colorPair.start, 0.3)}`;
+                customStyle.borderColor = colorPair.start;
+              }
+            }
+
             return (
               <div
                 key={key.midi}
                 className={`piano-key-full ${key.isBlack ? 'black' : 'white'} ${isPressed ? 'pressed' : ''} ${isWaiting ? 'waiting' : ''}`}
-                style={{
-                  position: 'absolute',
-                  left: `${key.left}%`,
-                  width: `${key.width}%`
-                }}
+                style={customStyle}
                 onClick={() => handleKeyClick(key.midi)}
               >
                 {key.isBlack && MIDI_TO_KEY_LABEL[key.midi] && (
