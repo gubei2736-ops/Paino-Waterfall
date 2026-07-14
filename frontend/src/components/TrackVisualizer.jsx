@@ -96,6 +96,35 @@ const hexToRgba = (hex, alpha) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+const adjustColorBrightness = (hex, factor) => {
+  if (!hex) return hex;
+  if (hex.startsWith('rgb')) {
+    const parts = hex.match(/\d+/g);
+    if (parts && parts.length >= 3) {
+      const r = Math.round(parseInt(parts[0]) * factor);
+      const g = Math.round(parseInt(parts[1]) * factor);
+      const b = Math.round(parseInt(parts[2]) * factor);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+    return hex;
+  }
+  const c = hex.replace('#', '');
+  let r, g, b;
+  if (c.length === 3) {
+    r = parseInt(c[0] + c[0], 16);
+    g = parseInt(c[1] + c[1], 16);
+    b = parseInt(c[2] + c[2], 16);
+  } else {
+    r = parseInt(c.substring(0, 2), 16);
+    g = parseInt(c.substring(2, 4), 16);
+    b = parseInt(c.substring(4, 6), 16);
+  }
+  r = Math.round(r * factor);
+  g = Math.round(g * factor);
+  b = Math.round(b * factor);
+  return `rgb(${r}, ${g}, ${b})`;
+};
+
 // Optimized: Removed heavy shadowBlur to prevent CPU rendering bottleneck on large numbers of particles
 const drawDiamond = (ctx, x, y, size, angle, color, alpha) => {
   ctx.save();
@@ -264,11 +293,22 @@ export default function TrackVisualizer({
           const isActive = T >= t_start && T <= t_end;
           const colorPair = customColorsEnabled ? activeCustomColor : getTrackColor(note.trackId);
 
+          // Resolve velocity scaling
+          const velocity = note.velocity !== undefined ? note.velocity : 100;
+          const useVelocityColoring = effectsConfig && effectsConfig.velocityColoring;
+          const velFactor = useVelocityColoring ? (0.35 + 0.65 * (velocity / 127)) : 1.0;
+
+          const startColor = useVelocityColoring ? adjustColorBrightness(colorPair.start, velFactor) : colorPair.start;
+          const endColor = useVelocityColoring ? adjustColorBrightness(colorPair.end, velFactor) : colorPair.end;
+
           const grad = ctx.createLinearGradient(drawX, y_top, drawX, y_bottom);
-          grad.addColorStop(0, colorPair.start);
-          grad.addColorStop(1, colorPair.end);
+          grad.addColorStop(0, startColor);
+          grad.addColorStop(1, endColor);
 
           let finalAlpha = noteBarsOpacity;
+          if (useVelocityColoring) {
+            finalAlpha *= (0.45 + 0.55 * (velocity / 127));
+          }
           if (effectsConfig && effectsConfig.barBreathing) {
             const breathFactor = 0.65 + 0.35 * Math.sin(performance.now() / 350);
             finalAlpha *= breathFactor;
@@ -372,12 +412,23 @@ export default function TrackVisualizer({
           const isHolding = note.endTime === null;
           const colorPair = customColorsEnabled ? activeCustomColor : getTrackColor('live');
 
+          // Resolve velocity scaling
+          const velocity = note.velocity !== undefined ? note.velocity : 100;
+          const useVelocityColoring = effectsConfig && effectsConfig.velocityColoring;
+          const velFactor = useVelocityColoring ? (0.35 + 0.65 * (velocity / 127)) : 1.0;
+
+          const startColor = useVelocityColoring ? adjustColorBrightness(colorPair.start, velFactor) : colorPair.start;
+          const endColor = useVelocityColoring ? adjustColorBrightness(colorPair.end, velFactor) : colorPair.end;
+
           const grad = ctx.createLinearGradient(drawX, y_top, drawX, y_bottom);
           // Gradients mirror direction of movement
-          grad.addColorStop(0, colorPair.end);
-          grad.addColorStop(1, colorPair.start);
+          grad.addColorStop(0, endColor);
+          grad.addColorStop(1, startColor);
 
           let finalAlpha = noteBarsOpacity;
+          if (useVelocityColoring) {
+            finalAlpha *= (0.45 + 0.55 * (velocity / 127));
+          }
           if (effectsConfig && effectsConfig.barBreathing) {
             const breathFactor = 0.65 + 0.35 * Math.sin(performance.now() / 350);
             finalAlpha *= breathFactor;

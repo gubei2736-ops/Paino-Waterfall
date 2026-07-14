@@ -198,12 +198,13 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
         loveLetter: true,
         keyBlast: true,
         barBreathing: false,
+        velocityColoring: false,
         showNoteBars: true,
         noteBarsOpacity: 1.0,
         ...parsed
       };
     } catch (e) {
-      return { bubbles: true, waterCurrent: true, loveLetter: true, keyBlast: true, barBreathing: false, showNoteBars: true, noteBarsOpacity: 1.0 };
+      return { bubbles: true, waterCurrent: true, loveLetter: true, keyBlast: true, barBreathing: false, velocityColoring: false, showNoteBars: true, noteBarsOpacity: 1.0 };
     }
   });
 
@@ -821,7 +822,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   };
 
   // 3. Web MIDI Connection & Live Notes manager
-  const addLiveNote = (midi) => {
+  const addLiveNote = (midi, velocity = 100) => {
     const now = performance.now() / 1000;
     
     if (isRecordingLiveRef.current) {
@@ -838,7 +839,8 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
           id: `live-${midi}-${now}-${Math.random()}`,
           midi,
           startTime: now,
-          endTime: null
+          endTime: null,
+          velocity
         }
       ];
     });
@@ -966,7 +968,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
       synthRef.current.startNote(note, 0, velocity);
       
       // Feed note to live visualizer
-      addLiveNote(note);
+      addLiveNote(note, velocity);
     } else if (isNoteOff) {
       setActiveNotes(prev => prev.filter(n => n !== note));
       releaseLiveNote(note);
@@ -1522,6 +1524,16 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                     style={{ cursor: 'pointer' }}
                   />
                   <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>长条呼吸灯 (Breathing Bars)</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
+                  <input 
+                    type="checkbox"
+                    checked={!!effectsConfig.velocityColoring}
+                    onChange={() => setEffectsConfig(prev => ({ ...prev, velocityColoring: !prev.velocityColoring }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: 'bold' }}>⚡ 按键强弱色彩 (Velocity Coloring)</span>
                 </label>
 
                 <div style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', paddingBottom: '4px', borderBottom: '1px solid var(--border-color)', marginTop: '8px', marginBottom: '6px' }}>
