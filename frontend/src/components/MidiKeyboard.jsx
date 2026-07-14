@@ -233,6 +233,14 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
       return true;
     }
   });
+  const [customColorSplitMode, setCustomColorSplitMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('waterfall_custom_color_split_mode');
+      return saved ? JSON.parse(saved) : false;
+    } catch (e) {
+      return false;
+    }
+  });
   const [customColor1, setCustomColor1] = useState(() => {
     return localStorage.getItem('waterfall_custom_color1') || '#ff007f';
   });
@@ -332,6 +340,12 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
       localStorage.setItem('waterfall_custom_color_gradient', JSON.stringify(customColorGradient));
     } catch (e) {}
   }, [customColorGradient]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('waterfall_custom_color_split_mode', JSON.stringify(customColorSplitMode));
+    } catch (e) {}
+  }, [customColorSplitMode]);
 
   useEffect(() => {
     try {
@@ -800,6 +814,12 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     ];
 
     if (customColorsEnabled) {
+      if (customColorSplitMode) {
+        const leftCol = customColor1 || '#ff007f';
+        const rightCol = customColor2 || '#7f00ff';
+        const col = midi < 60 ? leftCol : rightCol;
+        return { start: col, end: col };
+      }
       return { start: customColor1 || '#ff007f', end: customColor2 || '#7f00ff' };
     }
 
@@ -1685,6 +1705,48 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                       </label>
                     </div>
 
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>中央C分栏双色</span>
+                      <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={customColorSplitMode}
+                          onChange={(e) => setCustomColorSplitMode(e.target.checked)}
+                          style={{ opacity: 0, width: 0, height: 0 }}
+                        />
+                        <span 
+                          style={{
+                            position: 'absolute',
+                            cursor: 'pointer',
+                            top: 0, left: 0, right: 0, bottom: 0,
+                            backgroundColor: customColorSplitMode ? 'var(--accent-color)' : '#475569',
+                            transition: '0.3s',
+                            borderRadius: '20px'
+                          }}
+                        >
+                          <span 
+                            style={{
+                              position: 'absolute',
+                              content: '""',
+                              height: '14px', width: '14px',
+                              left: customColorSplitMode ? '18px' : '3px',
+                              bottom: '3px',
+                              backgroundColor: 'white',
+                              transition: '0.3s',
+                              borderRadius: '50%'
+                            }}
+                          />
+                        </span>
+                      </label>
+                    </div>
+
+                    {customColorSplitMode && (
+                      <div style={{ fontSize: '9px', color: 'var(--accent-color)', padding: '4px 6px', backgroundColor: 'rgba(99, 102, 241, 0.08)', borderRadius: '4px', lineHeight: '1.3' }}>
+                        💡 左半区 (中央C以下) 统一使用颜色 1<br />
+                        💡 右半区 (中央C及以上) 统一使用颜色 2
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
                       <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>配色方案 (最多5种)</span>
                       
@@ -2017,6 +2079,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
           showNoteNames={showNoteNames}
           customColorsEnabled={customColorsEnabled}
           customColorGradient={customColorGradient}
+          customColorSplitMode={customColorSplitMode}
           customColor1={customColor1}
           customColor2={customColor2}
           customColor3={customColor3}

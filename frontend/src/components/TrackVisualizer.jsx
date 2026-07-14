@@ -210,7 +210,8 @@ export default function TrackVisualizer({
   customColorDuration = 3.0,
   effectsConfig = { bubbles: true },
   visibleStartMidi = 21,
-  visibleEndMidi = 108
+  visibleEndMidi = 108,
+  customColorSplitMode = false
 }) {
   const canvasRef = useRef(null);
   const particlesRef = useRef([]);
@@ -291,7 +292,7 @@ export default function TrackVisualizer({
           const kh = Math.max(y_bottom - y_top, 3);
 
           const isActive = T >= t_start && T <= t_end;
-          const colorPair = customColorsEnabled ? activeCustomColor : getTrackColor(note.trackId);
+          const colorPair = getNoteColorPair(note.midi, note.trackId);
 
           // Resolve velocity scaling
           const velocity = note.velocity !== undefined ? note.velocity : 100;
@@ -410,7 +411,7 @@ export default function TrackVisualizer({
           const kh = Math.max(y_bottom - y_top, 4);
 
           const isHolding = note.endTime === null;
-          const colorPair = customColorsEnabled ? activeCustomColor : getTrackColor('live');
+          const colorPair = getNoteColorPair(note.midi, 'live');
 
           // Resolve velocity scaling
           const velocity = note.velocity !== undefined ? note.velocity : 100;
@@ -563,6 +564,20 @@ export default function TrackVisualizer({
         }
       }
 
+      // Color selector based on custom color mode & midi pitch
+      const getNoteColorPair = (midi, trackId) => {
+        if (customColorsEnabled) {
+          if (customColorSplitMode) {
+            const leftCol = customColor1 || '#ff007f';
+            const rightCol = customColor2 || '#7f00ff';
+            const col = midi < 60 ? leftCol : rightCol;
+            return { start: col, end: col };
+          }
+          return activeCustomColor || { start: customColor1, end: customColor2 };
+        }
+        return getTrackColor(trackId);
+      };
+
       // 1. Draw piano roll background columns
       visibleKeys.forEach((key) => {
         const x = (key.left / 100) * w;
@@ -674,8 +689,8 @@ export default function TrackVisualizer({
 
         // Color helper - optimized with early break
         const getActiveNoteColor = (midi) => {
-          if (customColorsEnabled && activeCustomColor) {
-            return activeCustomColor;
+          if (customColorsEnabled) {
+            return getNoteColorPair(midi, 'live');
           }
           const T = currentTimeRef.current || 0;
           let activePlaybackNote = null;
