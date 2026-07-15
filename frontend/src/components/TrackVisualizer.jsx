@@ -53,51 +53,70 @@ const getNoteName = (midi) => {
 
 const interpolateColor = (color1, color2, factor) => {
   const parseHex = (hex) => {
+    if (!hex || typeof hex !== 'string') {
+      return { r: 255, g: 0, b: 127 }; // fallback to default neon pink
+    }
     if (hex.startsWith('rgb')) {
       const parts = hex.match(/\d+/g);
-      return { r: parseInt(parts[0]), g: parseInt(parts[1]), b: parseInt(parts[2]) };
+      if (parts && parts.length >= 3) {
+        return { r: parseInt(parts[0]), g: parseInt(parts[1]), b: parseInt(parts[2]) };
+      }
+      return { r: 255, g: 0, b: 127 };
     }
     const c = hex.replace('#', '');
-    const r = parseInt(c.substring(0, 2), 16);
-    const g = parseInt(c.substring(2, 4), 16);
-    const b = parseInt(c.substring(4, 6), 16);
+    if (c.length < 3) return { r: 255, g: 0, b: 127 };
+    if (c.length === 3) {
+      const r = parseInt(c[0] + c[0], 16);
+      const g = parseInt(c[1] + c[1], 16);
+      const b = parseInt(c[2] + c[2], 16);
+      return { r, g, b };
+    }
+    const r = parseInt(c.substring(0, 2) || 'ff', 16);
+    const g = parseInt(c.substring(2, 4) || '00', 16);
+    const b = parseInt(c.substring(4, 6) || '7f', 16);
     return { r, g, b };
   };
   try {
     const c1 = parseHex(color1);
     const c2 = parseHex(color2);
-    const r = Math.round(c1.r + (c2.r - c1.r) * factor);
-    const g = Math.round(c1.g + (c2.g - c1.g) * factor);
-    const b = Math.round(c1.b + (c2.b - c1.b) * factor);
+    const safeFactor = Math.max(0, Math.min(1, factor || 0));
+    const r = Math.round(c1.r + (c2.r - c1.r) * safeFactor);
+    const g = Math.round(c1.g + (c2.g - c1.g) * safeFactor);
+    const b = Math.round(c1.b + (c2.b - c1.b) * safeFactor);
     return `rgb(${r}, ${g}, ${b})`;
   } catch (e) {
-    return color1;
+    return color1 || '#ff007f';
   }
 };
 
 const hexToRgba = (hex, alpha) => {
-  if (!hex) return `rgba(255, 255, 255, ${alpha})`;
+  const safeAlpha = Math.max(0, Math.min(1, alpha || 0));
+  if (!hex || typeof hex !== 'string') return `rgba(255, 255, 255, ${safeAlpha})`;
   if (hex.startsWith('rgba')) {
-    return hex.replace(/[\d\.]+\)$/, `${alpha})`);
+    return hex.replace(/[\d\.]+\)$/, `${safeAlpha})`);
   }
   if (hex.startsWith('rgb')) {
-    return hex.replace('rgb', 'rgba').replace(')', `, ${alpha})`);
+    return hex.replace('rgb', 'rgba').replace(')', `, ${safeAlpha})`);
   }
   const c = hex.replace('#', '');
   if (c.length === 3) {
     const r = parseInt(c[0] + c[0], 16);
     const g = parseInt(c[1] + c[1], 16);
     const b = parseInt(c[2] + c[2], 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
   }
+  if (c.length < 6) return `rgba(255, 255, 255, ${safeAlpha})`;
   const r = parseInt(c.substring(0, 2), 16);
   const g = parseInt(c.substring(2, 4), 16);
   const b = parseInt(c.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  if (isNaN(r) || isNaN(g) || isNaN(b)) {
+    return `rgba(255, 255, 255, ${safeAlpha})`;
+  }
+  return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
 };
 
 const adjustColorBrightness = (hex, factor) => {
-  if (!hex) return hex;
+  if (!hex || typeof hex !== 'string') return hex || '#ffffff';
   if (hex.startsWith('rgb')) {
     const parts = hex.match(/\d+/g);
     if (parts && parts.length >= 3) {
@@ -114,10 +133,12 @@ const adjustColorBrightness = (hex, factor) => {
     r = parseInt(c[0] + c[0], 16);
     g = parseInt(c[1] + c[1], 16);
     b = parseInt(c[2] + c[2], 16);
-  } else {
+  } else if (c.length >= 6) {
     r = parseInt(c.substring(0, 2), 16);
     g = parseInt(c.substring(2, 4), 16);
     b = parseInt(c.substring(4, 6), 16);
+  } else {
+    return hex;
   }
   r = Math.round(r * factor);
   g = Math.round(g * factor);
@@ -197,6 +218,8 @@ export default function TrackVisualizer({
   showNoteNames = true,
   customColorsEnabled = false,
   customColorGradient = true,
+  customColorSplitC = false,
+  customColorBlackWhitePlus = false,
   customColor1 = '#ff007f',
   customColor2 = '#7f00ff',
   customColor3 = '#00f2fe',
@@ -250,21 +273,156 @@ export default function TrackVisualizer({
         // Neon cyan to bright electric blue for live playing
         return { start: '#00f2fe', end: '#4facfe' };
       }
-      const idx = trackId % colors.length;
-      return colors[idx];
+      const safeId = parseInt(trackId, 10);
+      if (isNaN(safeId)) {
+        return colors[0];
+      }
+      const idx = safeId % colors.length;
+      return colors[idx] || colors[0];
     };
+
+    // Pre-compute visible key layout ONCE per effect run (deps: visibleStartMidi, visibleEndMidi)
+    // This avoids O(n) recomputation every animation frame.
+    const visibleKeys = getVisibleKeysLayout(visibleStartMidi, visibleEndMidi);
+    const visibleKeysMap = new Map(visibleKeys.map(k => [k.midi, k]));
 
     // Main Canvas Render Loop
     const draw = () => {
-      const dpr = window.devicePixelRatio || 1;
+      try {
+        const dpr = window.devicePixelRatio || 1;
       const w = canvas.width / dpr;
       const h = canvas.height / dpr;
 
-      // Compute visible layout on the fly for positioning
-      const visibleKeys = getVisibleKeysLayout(visibleStartMidi, visibleEndMidi);
-      const visibleKeysMap = new Map(visibleKeys.map(k => [k.midi, k]));
+      // Calculate time delta for smooth animations
+      const nowMs = performance.now();
+      const lastTime = lastFrameTimeRef.current || nowMs;
+      const dtReal = Math.min((nowMs - lastTime) / 1000, 0.1);
+      lastFrameTimeRef.current = nowMs;
 
       const noteBarsOpacity = (effectsConfig && effectsConfig.noteBarsOpacity !== undefined) ? effectsConfig.noteBarsOpacity : 1.0;
+
+      // Calculate dynamic custom color ratio if enabled
+      let activeCustomColor = { start: customColor1 || '#ff007f', end: customColor2 || '#7f00ff' };
+      if (customColorsEnabled) {
+        const activeColors = [];
+        if (customColor1Enabled) activeColors.push(customColor1);
+        if (customColor2Enabled) activeColors.push(customColor2);
+        if (customColor3Enabled) activeColors.push(customColor3);
+        if (customColor4Enabled) activeColors.push(customColor4);
+        if (customColor5Enabled) activeColors.push(customColor5);
+
+        // Fallback check
+        if (activeColors.length === 0) {
+          activeColors.push(customColor1);
+        }
+
+        const N = activeColors.length;
+        if (N === 1) {
+          const col = activeColors[0];
+          activeCustomColor = { start: col, end: col };
+        } else {
+          const t = performance.now() / 1000;
+          const D = customColorDuration;
+          const T_trans = 1.0; // 1s transition
+          const stepTime = D + T_trans;
+          const period = N * stepTime;
+          const cycle = t % period;
+          
+          const currentIndex = Math.floor(cycle / stepTime);
+          const nextIndex = (currentIndex + 1) % N;
+          
+          const inStepTime = cycle % stepTime;
+          let ratio = 0.0;
+          if (inStepTime < D) {
+            ratio = 0.0;
+          } else {
+            ratio = (inStepTime - D) / T_trans;
+          }
+          
+          const c_curr = activeColors[currentIndex];
+          const c_next = activeColors[nextIndex];
+          
+          const start = interpolateColor(c_curr, c_next, ratio);
+          
+          if (customColorGradient) {
+            const end = interpolateColor(c_next, c_curr, ratio);
+            activeCustomColor = { start, end };
+          } else {
+            activeCustomColor = { start, end: start };
+          }
+        }
+      }
+
+      // Pre-compute & cache global canvas-height gradients to drastically reduce GC pressure
+      let customGrad = null;
+      if (customColorsEnabled && activeCustomColor) {
+        if (activeCustomColor.start === activeCustomColor.end) {
+          customGrad = activeCustomColor.start;
+        } else {
+          customGrad = ctx.createLinearGradient(0, 0, 0, h);
+          customGrad.addColorStop(0, activeCustomColor.start);
+          customGrad.addColorStop(1, activeCustomColor.end);
+        }
+      }
+
+      const trackGradients = new Map();
+      const getTrackGradient = (trackId) => {
+        if (trackGradients.has(trackId)) {
+          return trackGradients.get(trackId);
+        }
+        const colorPair = getTrackColor(trackId);
+        if (colorPair.start === colorPair.end) {
+          trackGradients.set(trackId, colorPair.start);
+          return colorPair.start;
+        } else {
+          const grad = ctx.createLinearGradient(0, 0, 0, h);
+          grad.addColorStop(0, colorPair.start);
+          grad.addColorStop(1, colorPair.end);
+          trackGradients.set(trackId, grad);
+          return grad;
+        }
+      };
+
+      const getActiveNoteColor = (midi) => {
+        if (customColorsEnabled) {
+          const isBlack = isMidiBlack(midi);
+          const isHigh = midi >= 60;
+          
+          if (customColorSplitC && customColorBlackWhitePlus) {
+            // Both modes enabled
+            const col = isHigh 
+              ? (isBlack ? (customColor2 || '#7f00ff') : (customColor1 || '#ff007f'))
+              : (isBlack ? (customColor4 || '#10b981') : (customColor3 || '#00f2fe'));
+            return { start: col, end: col };
+          } else if (customColorBlackWhitePlus) {
+            // Only Black & White Plus mode enabled
+            const col = isBlack ? (customColor2 || '#7f00ff') : (customColor1 || '#ff007f');
+            return { start: col, end: col };
+          } else if (customColorSplitC) {
+            // Only Central C Split mode enabled
+            const col = isHigh ? (customColor1 || '#ff007f') : (customColor2 || '#7f00ff');
+            return { start: col, end: col };
+          }
+          
+          if (activeCustomColor) {
+            return activeCustomColor;
+          }
+        }
+        const T = currentTimeRef.current || 0;
+        let activePlaybackNote = null;
+        for (let i = 0; i < playbackNotes.length; i++) {
+          const n = playbackNotes[i];
+          if (n.time > T) break; // Early break!
+          if (n.midi === midi && T >= n.time && T <= n.time + n.duration && activeTracks.includes(n.trackId)) {
+            activePlaybackNote = n;
+            break;
+          }
+        }
+        if (activePlaybackNote) {
+          return getTrackColor(activePlaybackNote.trackId);
+        }
+        return getTrackColor('live');
+      };
 
       const drawPlaybackNote = (note, T) => {
         const t_start = note.time;
@@ -291,19 +449,41 @@ export default function TrackVisualizer({
           const kh = Math.max(y_bottom - y_top, 3);
 
           const isActive = T >= t_start && T <= t_end;
-          const colorPair = customColorsEnabled ? activeCustomColor : getTrackColor(note.trackId);
+           let colorPair;
+           if (customColorsEnabled) {
+             colorPair = getActiveNoteColor(note.midi);
+           } else {
+             colorPair = getTrackColor(note.trackId);
+           }
 
           // Resolve velocity scaling
           const velocity = note.velocity !== undefined ? note.velocity : 100;
           const useVelocityColoring = effectsConfig && effectsConfig.velocityColoring;
           const velFactor = useVelocityColoring ? (0.35 + 0.65 * (velocity / 127)) : 1.0;
 
-          const startColor = useVelocityColoring ? adjustColorBrightness(colorPair.start, velFactor) : colorPair.start;
-          const endColor = useVelocityColoring ? adjustColorBrightness(colorPair.end, velFactor) : colorPair.end;
-
-          const grad = ctx.createLinearGradient(drawX, y_top, drawX, y_bottom);
-          grad.addColorStop(0, startColor);
-          grad.addColorStop(1, endColor);
+          let fillStyle;
+          if (useVelocityColoring) {
+            const startColor = adjustColorBrightness(colorPair.start, velFactor);
+            const endColor = adjustColorBrightness(colorPair.end, velFactor);
+            if (startColor === endColor) {
+              fillStyle = startColor;
+            } else {
+              const grad = ctx.createLinearGradient(drawX, y_top, drawX, y_bottom);
+              grad.addColorStop(0, startColor);
+              grad.addColorStop(1, endColor);
+              fillStyle = grad;
+            }
+          } else {
+            if (customColorsEnabled) {
+              if (customColorSplitC || customColorBlackWhitePlus) {
+                fillStyle = colorPair.start;
+              } else {
+                fillStyle = customGrad || colorPair.start || '#ff007f';
+              }
+            } else {
+              fillStyle = getTrackGradient(note.trackId);
+            }
+          }
 
           let finalAlpha = noteBarsOpacity;
           if (useVelocityColoring) {
@@ -313,13 +493,17 @@ export default function TrackVisualizer({
             const breathFactor = 0.65 + 0.35 * Math.sin(performance.now() / 350);
             finalAlpha *= breathFactor;
           }
+          // White keys dimming effect (50% opacity of black keys)
+          if (effectsConfig && effectsConfig.whiteKeysDim && !key.isBlack) {
+            finalAlpha *= 0.50;
+          }
 
           if (finalAlpha > 0.01) {
             ctx.save();
             ctx.globalAlpha = finalAlpha;
 
             // Draw note bar
-            ctx.fillStyle = grad;
+            ctx.fillStyle = fillStyle;
             const radius = Math.min(drawWidth / 2, 4);
             ctx.beginPath();
             if (ctx.roundRect) {
@@ -410,20 +594,41 @@ export default function TrackVisualizer({
           const kh = Math.max(y_bottom - y_top, 4);
 
           const isHolding = note.endTime === null;
-          const colorPair = customColorsEnabled ? activeCustomColor : getTrackColor('live');
+           let colorPair;
+           if (customColorsEnabled) {
+             colorPair = getActiveNoteColor(note.midi);
+           } else {
+             colorPair = getTrackColor('live');
+           }
 
           // Resolve velocity scaling
           const velocity = note.velocity !== undefined ? note.velocity : 100;
           const useVelocityColoring = effectsConfig && effectsConfig.velocityColoring;
           const velFactor = useVelocityColoring ? (0.35 + 0.65 * (velocity / 127)) : 1.0;
 
-          const startColor = useVelocityColoring ? adjustColorBrightness(colorPair.start, velFactor) : colorPair.start;
-          const endColor = useVelocityColoring ? adjustColorBrightness(colorPair.end, velFactor) : colorPair.end;
-
-          const grad = ctx.createLinearGradient(drawX, y_top, drawX, y_bottom);
-          // Gradients mirror direction of movement
-          grad.addColorStop(0, endColor);
-          grad.addColorStop(1, startColor);
+          let fillStyle;
+          if (useVelocityColoring) {
+            const startColor = adjustColorBrightness(colorPair.start, velFactor);
+            const endColor = adjustColorBrightness(colorPair.end, velFactor);
+            if (startColor === endColor) {
+              fillStyle = startColor;
+            } else {
+              const grad = ctx.createLinearGradient(drawX, y_top, drawX, y_bottom);
+              grad.addColorStop(0, endColor);
+              grad.addColorStop(1, startColor);
+              fillStyle = grad;
+            }
+          } else {
+            if (customColorsEnabled) {
+              if (customColorSplitC || customColorBlackWhitePlus) {
+                fillStyle = colorPair.start;
+              } else {
+                fillStyle = customGrad || colorPair.start || '#ff007f';
+              }
+            } else {
+              fillStyle = getTrackGradient('live');
+            }
+          }
 
           let finalAlpha = noteBarsOpacity;
           if (useVelocityColoring) {
@@ -433,12 +638,16 @@ export default function TrackVisualizer({
             const breathFactor = 0.65 + 0.35 * Math.sin(performance.now() / 350);
             finalAlpha *= breathFactor;
           }
+          // White keys dimming effect (50% opacity of black keys)
+          if (effectsConfig && effectsConfig.whiteKeysDim && !key.isBlack) {
+            finalAlpha *= 0.50;
+          }
 
           if (finalAlpha > 0.01) {
             ctx.save();
             ctx.globalAlpha = finalAlpha;
 
-            ctx.fillStyle = grad;
+            ctx.fillStyle = fillStyle;
             const radius = Math.min(drawWidth / 2, 4);
             ctx.beginPath();
             if (ctx.roundRect) {
@@ -511,57 +720,7 @@ export default function TrackVisualizer({
 
 
 
-      // Calculate dynamic custom color ratio if enabled
-      let activeCustomColor = null;
-      if (customColorsEnabled) {
-        const activeColors = [];
-        if (customColor1Enabled) activeColors.push(customColor1);
-        if (customColor2Enabled) activeColors.push(customColor2);
-        if (customColor3Enabled) activeColors.push(customColor3);
-        if (customColor4Enabled) activeColors.push(customColor4);
-        if (customColor5Enabled) activeColors.push(customColor5);
 
-        // Fallback check
-        if (activeColors.length === 0) {
-          activeColors.push(customColor1);
-        }
-
-        const N = activeColors.length;
-        if (N === 1) {
-          const col = activeColors[0];
-          activeCustomColor = { start: col, end: col };
-        } else {
-          const t = performance.now() / 1000;
-          const D = customColorDuration;
-          const T_trans = 1.0; // 1s transition
-          const stepTime = D + T_trans;
-          const period = N * stepTime;
-          const cycle = t % period;
-          
-          const currentIndex = Math.floor(cycle / stepTime);
-          const nextIndex = (currentIndex + 1) % N;
-          
-          const inStepTime = cycle % stepTime;
-          let ratio = 0.0;
-          if (inStepTime < D) {
-            ratio = 0.0;
-          } else {
-            ratio = (inStepTime - D) / T_trans;
-          }
-          
-          const c_curr = activeColors[currentIndex];
-          const c_next = activeColors[nextIndex];
-          
-          const start = interpolateColor(c_curr, c_next, ratio);
-          
-          if (customColorGradient) {
-            const end = interpolateColor(c_next, c_curr, ratio);
-            activeCustomColor = { start, end };
-          } else {
-            activeCustomColor = { start, end: start };
-          }
-        }
-      }
 
       // 1. Draw piano roll background columns
       visibleKeys.forEach((key) => {
@@ -629,6 +788,31 @@ export default function TrackVisualizer({
         });
       }
 
+      // 3.4 Extract active keys for current frame (used by pedal and particle effects)
+      const activeMidis = [];
+      if (playbackNotes && playbackNotes.length > 0) {
+        const T = currentTimeRef.current || 0;
+        for (let i = 0; i < playbackNotes.length; i++) {
+          const note = playbackNotes[i];
+          if (note.time > T + W) break; // Early break!
+          const t_start = note.time;
+          const t_end = note.time + note.duration;
+          if (t_end >= T && t_start <= T + W && activeTracks.includes(note.trackId)) {
+            if (T >= t_start && T <= t_end) {
+              activeMidis.push(note.midi);
+            }
+          }
+        }
+      }
+      if (liveNotes && liveNotes.length > 0) {
+        liveNotes.forEach(note => {
+          if (note.endTime === null) {
+            activeMidis.push(note.midi);
+          }
+        });
+      }
+      const uniqueActiveMidis = [...new Set(activeMidis)];
+
       // 3.5. Update and Draw Particles
       const bubblesEnabled = effectsConfig && effectsConfig.bubbles;
       const waterCurrentEnabled = effectsConfig && effectsConfig.waterCurrent;
@@ -636,62 +820,7 @@ export default function TrackVisualizer({
       const keyBlastEnabled = effectsConfig && effectsConfig.keyBlast;
 
       if (bubblesEnabled || waterCurrentEnabled || loveLetterEnabled || keyBlastEnabled) {
-        const nowMs = performance.now();
-        const lastTime = lastFrameTimeRef.current || nowMs;
-        const dtReal = Math.min((nowMs - lastTime) / 1000, 0.1);
-        lastFrameTimeRef.current = nowMs;
-
-        // Tracking active notes
-        const activeMidis = [];
-
-        // Check active playback notes - Optimized with early break
-        if (playbackNotes && playbackNotes.length > 0) {
-          const T = currentTimeRef.current || 0;
-          for (let i = 0; i < playbackNotes.length; i++) {
-            const note = playbackNotes[i];
-            if (note.time > T + W) break; // Early break!
-            const t_start = note.time;
-            const t_end = note.time + note.duration;
-            if (t_end >= T && t_start <= T + W && activeTracks.includes(note.trackId)) {
-              if (T >= t_start && T <= t_end) {
-                activeMidis.push(note.midi);
-              }
-            }
-          }
-        }
-
-        // Check active live notes
-        if (liveNotes && liveNotes.length > 0) {
-          liveNotes.forEach(note => {
-            if (note.endTime === null) {
-              activeMidis.push(note.midi);
-            }
-          });
-        }
-
-        const uniqueActiveMidis = [...new Set(activeMidis)];
         const prevActiveMidis = prevActiveMidisRef.current || [];
-
-        // Color helper - optimized with early break
-        const getActiveNoteColor = (midi) => {
-          if (customColorsEnabled && activeCustomColor) {
-            return activeCustomColor;
-          }
-          const T = currentTimeRef.current || 0;
-          let activePlaybackNote = null;
-          for (let i = 0; i < playbackNotes.length; i++) {
-            const n = playbackNotes[i];
-            if (n.time > T) break; // Early break!
-            if (n.midi === midi && T >= n.time && T <= n.time + n.duration && activeTracks.includes(n.trackId)) {
-              activePlaybackNote = n;
-              break;
-            }
-          }
-          if (activePlaybackNote) {
-            return getTrackColor(activePlaybackNote.trackId);
-          }
-          return getTrackColor('live');
-        };
 
         uniqueActiveMidis.forEach(midi => {
           const key = visibleKeysMap.get(midi);
@@ -1022,6 +1151,17 @@ export default function TrackVisualizer({
       }
 
       animationFrameId = requestAnimationFrame(draw);
+      } catch (err) {
+        console.error("Canvas draw loop crashed:", err);
+        try {
+          ctx.fillStyle = '#ff3366';
+          ctx.font = '13px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText("Canvas Error: " + err.message, 20, 40);
+          ctx.fillText("Stack: " + err.stack.split('\n')[0], 20, 60);
+          ctx.fillText("Stack Line: " + err.stack.split('\n')[1], 20, 80);
+        } catch (e) {}
+      }
     };
 
     draw();
@@ -1039,6 +1179,8 @@ export default function TrackVisualizer({
     showNoteNames,
     customColorsEnabled,
     customColorGradient,
+    customColorSplitC,
+    customColorBlackWhitePlus,
     customColor1,
     customColor2,
     customColor3,

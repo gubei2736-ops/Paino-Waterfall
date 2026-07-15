@@ -74,6 +74,22 @@ export default function App() {
   const [showMidiScore, setShowMidiScore] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
 
+  // Handle ESC key to exit focus mode
+  useEffect(() => {
+    if (!focusMode) return;
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        setFocusMode(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [focusMode]);
+
   // Playback sync states for score follower
   const [playbackTime, setPlaybackTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);

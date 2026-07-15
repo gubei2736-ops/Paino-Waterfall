@@ -40,11 +40,87 @@ const areArraysEqual = (a, b) => {
   return true;
 };
 
-export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore, setShowMidiScore, focusMode }) {
+const MAJOR_SCALE_MAP = {
+  'C': ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
+  'C#': ['C#', 'D#', 'E#', 'F#', 'G#', 'A#', 'B#'],
+  'Db': ['Db', 'Eb', 'F', 'Gb', 'Ab', 'Bb', 'C'],
+  'D': ['D', 'E', 'F#', 'G', 'A', 'B', 'C#'],
+  'Eb': ['Eb', 'F', 'G', 'Ab', 'Bb', 'C', 'D'],
+  'E': ['E', 'F#', 'G#', 'A', 'B', 'C#', 'D#'],
+  'F': ['F', 'G', 'A', 'Bb', 'C', 'D', 'E'],
+  'F#': ['F#', 'G#', 'A#', 'B', 'C#', 'D#', 'E#'],
+  'Gb': ['Gb', 'Ab', 'Bb', 'Cb', 'Db', 'Eb', 'F'],
+  'G': ['G', 'A', 'B', 'C', 'D', 'E', 'F#'],
+  'Ab': ['Ab', 'Bb', 'C', 'Db', 'Eb', 'F', 'G'],
+  'A': ['A', 'B', 'C#', 'D', 'E', 'F#', 'G#'],
+  'Bb': ['Bb', 'C', 'D', 'Eb', 'F', 'G', 'A'],
+  'B': ['B', 'C#', 'D#', 'E', 'F#', 'G#', 'A#']
+};
+
+const NOTE_TO_SEMITONE = {
+  'C': 0, 'B#': 0,
+  'C#': 1, 'Db': 1,
+  'D': 2,
+  'D#': 3, 'Eb': 3,
+  'E': 4, 'Fb': 4,
+  'F': 5, 'E#': 5,
+  'F#': 6, 'Gb': 6,
+  'G': 7,
+  'G#': 8, 'Ab': 8,
+  'A': 9,
+  'A#': 10, 'Bb': 10,
+  'B': 11, 'Cb': 11
+};
+
+const analyzeChordDegree = (chordName, key) => {
+  if (!chordName || chordName === '未知和弦 (Unknown)' || chordName === '检测和弦...') return '';
+  
+  let root = chordName[0];
+  if (chordName.length > 1 && (chordName[1] === '#' || chordName[1] === 'b')) {
+    root += chordName[1];
+  }
+  
+  const suffix = chordName.slice(root.length);
+  const rootVal = NOTE_TO_SEMITONE[root];
+  if (rootVal === undefined) return '';
+
+  const cleanKey = key ? key.replace('m', '') : 'C';
+  const scale = MAJOR_SCALE_MAP[cleanKey] || MAJOR_SCALE_MAP['C'];
+  
+  let degreeIdx = -1;
+  for (let i = 0; i < scale.length; i++) {
+    const scaleVal = NOTE_TO_SEMITONE[scale[i]];
+    if (scaleVal === rootVal) {
+      degreeIdx = i;
+      break;
+    }
+  }
+  
+  const ROMANS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+  if (degreeIdx !== -1) {
+    return `${ROMANS[degreeIdx]}${suffix}`;
+  }
+  
+  for (let i = 0; i < scale.length; i++) {
+    const scaleVal = NOTE_TO_SEMITONE[scale[i]];
+    const diff = (rootVal - scaleVal + 12) % 12;
+    if (diff === 11) {
+      return `b${ROMANS[i]}${suffix}`;
+    } else if (diff === 1) {
+      return `#${ROMANS[i]}${suffix}`;
+    }
+  }
+  
+  return root + suffix;
+};
+
+export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore, setShowMidiScore, focusMode, selectedKey }) {
   const [activeNotes, setActiveNotes] = useState([]); // User manual played active MIDI numbers
   const [playbackActiveNotes, setPlaybackActiveNotes] = useState([]); // Auto-played MIDI numbers from score
   const [liveNotes, setLiveNotes] = useState([]); // Live notes stream history for real-time visualizer
   const [detectedChord, setDetectedChord] = useState('');
+  const [showChordTheory, setShowChordTheory] = useState(false);
+  const chordTheoryRef = useRef(null);
   const [midiDevices, setMidiDevices] = useState([]);
   const [midiError, setMidiError] = useState('');
 
@@ -83,6 +159,83 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   // Visible piano range states (zoom & shift) in Focus Mode
   const [visibleStartMidi, setVisibleStartMidi] = useState(21); // default A0
   const [visibleEndMidi, setVisibleEndMidi] = useState(108); // default C8
+
+  const [showFocusControls, setShowFocusControls] = useState(true);
+  const focusControlsTimeoutRef = useRef(null);
+
+  // Automatically handle focus mode range selector hiding after 2s of inactivity
+  useEffect(() => {
+    if (focusMode) {
+      setShowFocusControls(true);
+      if (focusControlsTimeoutRef.current) {
+        clearTimeout(focusControlsTimeoutRef.current);
+      }
+      focusControlsTimeoutRef.current = setTimeout(() => {
+        setShowFocusControls(false);
+      }, 2000);
+    }
+    return () => {
+      if (focusControlsTimeoutRef.current) {
+        clearTimeout(focusControlsTimeoutRef.current);
+      }
+    };
+  }, [focusMode]);
+
+  const handleControlsActivity = () => {
+    setShowFocusControls(true);
+    if (focusControlsTimeoutRef.current) {
+      clearTimeout(focusControlsTimeoutRef.current);
+    }
+    focusControlsTimeoutRef.current = setTimeout(() => {
+      setShowFocusControls(false);
+    }, 2000);
+  };
+
+  const handleControlsMouseEnter = () => {
+    setShowFocusControls(true);
+    if (focusControlsTimeoutRef.current) {
+      clearTimeout(focusControlsTimeoutRef.current);
+    }
+  };
+
+  const handleControlsMouseLeave = () => {
+    if (focusControlsTimeoutRef.current) {
+      clearTimeout(focusControlsTimeoutRef.current);
+    }
+    focusControlsTimeoutRef.current = setTimeout(() => {
+      setShowFocusControls(false);
+    }, 2000);
+  };
+
+  // ── 和弦检测开关 ──
+  const [chordDetectionEnabled, setChordDetectionEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('waterfall_chord_detection_enabled');
+      return saved ? JSON.parse(saved) : true;
+    } catch (e) {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('waterfall_chord_detection_enabled', JSON.stringify(chordDetectionEnabled));
+    } catch (e) {}
+  }, [chordDetectionEnabled]);
+
+  // 是否显示和弦区（hover 时显示；有音符演奏时始终显示）
+  const [showChordArea, setShowChordArea] = useState(false);
+  const chordAreaTimeoutRef = useRef(null);
+
+  const handleChordAreaMouseEnter = () => {
+    if (chordAreaTimeoutRef.current) clearTimeout(chordAreaTimeoutRef.current);
+    setShowChordArea(true);
+  };
+
+  const handleChordAreaMouseLeave = () => {
+    if (chordAreaTimeoutRef.current) clearTimeout(chordAreaTimeoutRef.current);
+    chordAreaTimeoutRef.current = setTimeout(() => setShowChordArea(false), 800);
+  };
 
   const zoomInKeys = () => {
     const currentKeys = KEYS_88.filter(k => k.midi >= visibleStartMidi && k.midi <= visibleEndMidi);
@@ -201,10 +354,12 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
         velocityColoring: false,
         showNoteBars: true,
         noteBarsOpacity: 1.0,
+        sustainGlow: true,
+        whiteKeysDim: false,
         ...parsed
       };
     } catch (e) {
-      return { bubbles: true, waterCurrent: true, loveLetter: true, keyBlast: true, barBreathing: false, velocityColoring: false, showNoteBars: true, noteBarsOpacity: 1.0 };
+      return { bubbles: true, waterCurrent: true, loveLetter: true, keyBlast: true, barBreathing: false, velocityColoring: false, showNoteBars: true, noteBarsOpacity: 1.0, sustainGlow: true, whiteKeysDim: false };
     }
   });
 
@@ -259,7 +414,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   });
   const [customColor2Enabled, setCustomColor2Enabled] = useState(() => {
     try {
-      const saved = localStorage.getItem('waterfall_custom_color_2_enabled');
+      const saved = localStorage.getItem('waterfall_custom_color2_enabled');
       return saved ? JSON.parse(saved) : true;
     } catch (e) {
       return true;
@@ -267,7 +422,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   });
   const [customColor3Enabled, setCustomColor3Enabled] = useState(() => {
     try {
-      const saved = localStorage.getItem('waterfall_custom_color_3_enabled');
+      const saved = localStorage.getItem('waterfall_custom_color3_enabled');
       return saved ? JSON.parse(saved) : false;
     } catch (e) {
       return false;
@@ -275,7 +430,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   });
   const [customColor4Enabled, setCustomColor4Enabled] = useState(() => {
     try {
-      const saved = localStorage.getItem('waterfall_custom_color_4_enabled');
+      const saved = localStorage.getItem('waterfall_custom_color4_enabled');
       return saved ? JSON.parse(saved) : false;
     } catch (e) {
       return false;
@@ -283,12 +438,35 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   });
   const [customColor5Enabled, setCustomColor5Enabled] = useState(() => {
     try {
-      const saved = localStorage.getItem('waterfall_custom_color_5_enabled');
+      const saved = localStorage.getItem('waterfall_custom_color5_enabled');
       return saved ? JSON.parse(saved) : false;
     } catch (e) {
       return false;
     }
   });
+  const [customColorSplitC, setCustomColorSplitC] = useState(() => {
+    try {
+      const saved = localStorage.getItem('waterfall_custom_color_split_c');
+      return saved ? JSON.parse(saved) : false;
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const [customColorBlackWhitePlus, setCustomColorBlackWhitePlus] = useState(() => {
+    try {
+      const saved = localStorage.getItem('waterfall_custom_color_black_white_plus');
+      return saved ? JSON.parse(saved) : false;
+    } catch (e) {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('waterfall_custom_color_black_white_plus', JSON.stringify(customColorBlackWhitePlus));
+    } catch (e) {}
+  }, [customColorBlackWhitePlus]);
 
   const [customColorDuration, setCustomColorDuration] = useState(() => {
     try {
@@ -360,12 +538,21 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   }, [customColorDuration]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem('waterfall_custom_color_split_c', JSON.stringify(customColorSplitC));
+    } catch (e) {}
+  }, [customColorSplitC]);
+
+  useEffect(() => {
     const handleClickOutside = (e) => {
       if (colorPopoverRef.current && !colorPopoverRef.current.contains(e.target)) {
         setShowColorPicker(false);
       }
       if (effectsPopoverRef.current && !effectsPopoverRef.current.contains(e.target)) {
         setShowEffectsPicker(false);
+      }
+      if (chordTheoryRef.current && !chordTheoryRef.current.contains(e.target)) {
+        setShowChordTheory(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -800,6 +987,10 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
     ];
 
     if (customColorsEnabled) {
+      if (customColorSplitC) {
+        const col = midi >= 60 ? (customColor1 || '#ff007f') : (customColor2 || '#7f00ff');
+        return { start: col, end: col };
+      }
       return { start: customColor1 || '#ff007f', end: customColor2 || '#7f00ff' };
     }
 
@@ -1177,70 +1368,265 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
   // --- RENDER MIDI Test Workspace ---
   const visibleKeys = getVisibleKeysLayout(visibleStartMidi, visibleEndMidi);
 
+  // Get chord details for the tooltip theory panel
+  const getChordDetails = () => {
+    if (!detectedChord || detectedChord === '未知和弦 (Unknown)' || detectedChord === '检测和弦...') {
+      return { notes: [], degree: '', typeName: '未知 (Unknown)' };
+    }
+    try {
+      const info = Chord.get(detectedChord);
+      const degree = analyzeChordDegree(detectedChord, selectedKey);
+      return {
+        notes: info ? info.notes : [],
+        degree: degree || '',
+        typeName: info ? info.name || '未知 (Unknown)' : '未知 (Unknown)'
+      };
+    } catch (e) {
+      return { notes: [], degree: '', typeName: '未知 (Unknown)' };
+    }
+  };
+  const chordDetails = getChordDetails();
+
+  const renderMiniPianoSvg = (chordNotes) => {
+    // Helper to get note chroma (0-11) for enharmonic equivalent check
+    const getNoteChroma = (noteName) => {
+      const pc = noteName.replace(/[0-9]/g, '');
+      const chromaMap = {
+        'C': 0, 'B#': 0,
+        'C#': 1, 'Db': 1,
+        'D': 2,
+        'D#': 3, 'Eb': 3,
+        'E': 4, 'Fb': 4,
+        'F': 5, 'E#': 5,
+        'F#': 6, 'Gb': 6,
+        'G': 7,
+        'G#': 8, 'Ab': 8,
+        'A': 9,
+        'A#': 10, 'Bb': 10,
+        'B': 11, 'Cb': 11
+      };
+      return chromaMap[pc] !== undefined ? chromaMap[pc] : -1;
+    };
+
+    // Calculate 24 keys layout: MIDI 48 to 71 (C3 to B4)
+    // 14 white keys total = 336px width (24px each)
+    const whiteKeys = [48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71];
+    const blackKeys = [
+      { midi: 49, left: 17 },   // C#3
+      { midi: 51, left: 41 },   // D#3
+      { midi: 54, left: 89 },   // F#3
+      { midi: 56, left: 113 },  // G#3
+      { midi: 58, left: 137 },  // A#3
+      { midi: 61, left: 185 },  // C#4
+      { midi: 63, left: 209 },  // D#4
+      { midi: 66, left: 257 },  // F#4
+      { midi: 68, left: 281 },  // G#4
+      { midi: 70, left: 305 }   // A#4
+    ];
+
+    const w_white = 24;
+    const h_white = 76;
+    const w_black = 14;
+    const h_black = 48;
+
+    // Retrieve chord note label matching current key chroma
+    const getActiveNoteLabel = (midiNum) => {
+      const targetChroma = midiNum % 12;
+      return chordNotes.find(n => getNoteChroma(n) === targetChroma) || '';
+    };
+
+    return (
+      <svg 
+        width="336" 
+        height="78" 
+        style={{ 
+          backgroundColor: '#0f1115', 
+          borderRadius: '6px', 
+          border: '1px solid var(--border-color)', 
+          margin: '0 auto', 
+          display: 'block',
+          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.8)'
+        }}
+      >
+        {/* Draw White Keys */}
+        {whiteKeys.map((midi, idx) => {
+          const noteLabel = getActiveNoteLabel(midi);
+          const isAct = noteLabel !== '';
+          const x = idx * w_white;
+          return (
+            <g key={midi}>
+              <rect 
+                x={x + 0.5} 
+                y={0.5} 
+                width={w_white - 1} 
+                height={h_white} 
+                fill={isAct ? 'rgba(234, 179, 8, 0.25)' : '#1b1d24'} 
+                stroke="#0b0c10"
+                strokeWidth="1.5"
+                rx="2"
+              />
+              {isAct && (
+                <rect
+                  x={x + 2}
+                  y={0.5}
+                  width={w_white - 4}
+                  height="4"
+                  fill="#eab308"
+                  rx="1"
+                />
+              )}
+              {isAct && (
+                <text 
+                  x={x + w_white / 2} 
+                  y={h_white - 12} 
+                  fontFamily='"Outfit", "Noto Sans SC", sans-serif'
+                  fontSize="10px"
+                  fontWeight="bold"
+                  fill="#ffffff"
+                  textAnchor="middle"
+                >
+                  {noteLabel}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Draw Black Keys */}
+        {blackKeys.map((bk) => {
+          const noteLabel = getActiveNoteLabel(bk.midi);
+          const isAct = noteLabel !== '';
+          return (
+            <g key={bk.midi}>
+              <rect 
+                x={bk.left} 
+                y={0.5} 
+                width={w_black} 
+                height={h_black} 
+                fill={isAct ? 'rgba(168, 85, 247, 0.85)' : '#07080b'} 
+                stroke="#0b0c10"
+                strokeWidth="1"
+                rx="1.5"
+              />
+              {isAct && (
+                <rect
+                  x={bk.left + 1.5}
+                  y={0.5}
+                  width={w_black - 3}
+                  height="3"
+                  fill="#a855f7"
+                  rx="0.5"
+                />
+              )}
+              {isAct && (
+                <text 
+                  x={bk.left + w_black / 2} 
+                  y={h_black - 8} 
+                  fontFamily='"Outfit", "Noto Sans SC", sans-serif'
+                  fontSize="8px"
+                  fontWeight="bold"
+                  fill="#ffffff"
+                  textAnchor="middle"
+                >
+                  {noteLabel}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    );
+  };
+
   return (
     <div className="midi-keyboard-full-container">
       {/* Floating Keyboard Bounds Controls for Focus Mode */}
       {focusMode && (
-        <div className="focus-controls-overlay" style={{
-          position: 'absolute',
-          top: '20px',
-          right: '20px',
-          zIndex: 1000,
-          display: 'flex',
-          gap: '8px',
-          backgroundColor: 'rgba(30, 41, 59, 0.75)',
-          backdropFilter: 'blur(8px)',
-          padding: '8px 12px',
-          borderRadius: '24px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          alignItems: 'center',
-          fontFamily: '"Outfit", "Noto Sans SC", sans-serif'
-        }}>
-          <span style={{ fontSize: '11px', color: '#94a3b8', marginRight: '4px', userSelect: 'none' }}>键盘范围:</span>
-          
-          <button 
-            className="btn btn-secondary btn-sm"
-            onClick={zoomInKeys}
-            title="放大（显示更少按键，使其变宽）"
-            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
+        <div 
+          className="focus-controls-trigger-zone"
+          onMouseEnter={handleControlsMouseEnter}
+          onMouseMove={handleControlsActivity}
+          onMouseLeave={handleControlsMouseLeave}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '380px',
+            height: '68px',
+            zIndex: 1000,
+            backgroundColor: 'transparent',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            pointerEvents: 'auto'
+          }}
+        >
+          <div 
+            className="focus-controls-overlay" 
+            style={{
+              display: 'flex',
+              gap: '8px',
+              backgroundColor: 'rgba(15, 23, 42, 0.35)',
+              backdropFilter: 'blur(12px)',
+              padding: '8px 12px',
+              borderRadius: '24px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+              alignItems: 'center',
+              fontFamily: '"Outfit", "Noto Sans SC", sans-serif',
+              opacity: showFocusControls ? 1 : 0,
+              transform: showFocusControls ? 'translateY(0)' : 'translateY(-10px)',
+              pointerEvents: showFocusControls ? 'auto' : 'none',
+              transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+              marginBottom: '4px'
+            }}
           >
-            +
-          </button>
-          <button 
-            className="btn btn-secondary btn-sm"
-            onClick={zoomOutKeys}
-            title="缩小（显示更多按键，使其变窄）"
-            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
-          >
-            -
-          </button>
-          
-          <button 
-            className="btn btn-secondary btn-sm"
-            onClick={shiftLeftKeys}
-            title="向左移动键盘范围"
-            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', border: '1px solid rgba(255,255,255,0.1)' }}
-          >
-            ◀
-          </button>
-          <button 
-            className="btn btn-secondary btn-sm"
-            onClick={shiftRightKeys}
-            title="向右移动键盘范围"
-            style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', border: '1px solid rgba(255,255,255,0.1)' }}
-          >
-            ▶
-          </button>
-          
-          <button 
-            className="btn btn-secondary btn-sm"
-            onClick={resetKeys}
-            title="恢复完整 88 键显示"
-            style={{ padding: '2px 8px', fontSize: '11px', height: '28px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
-          >
-            重置
-          </button>
+            <span style={{ fontSize: '11px', color: '#94a3b8', marginRight: '4px', userSelect: 'none' }}>键盘范围:</span>
+            
+            <button 
+              className="btn btn-secondary btn-sm"
+              onClick={(e) => { e.stopPropagation(); zoomInKeys(); handleControlsActivity(); }}
+              title="放大（显示更少按键，使其变宽）"
+              style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              +
+            </button>
+            <button 
+              className="btn btn-secondary btn-sm"
+              onClick={(e) => { e.stopPropagation(); zoomOutKeys(); handleControlsActivity(); }}
+              title="缩小（显示更多按键，使其变窄）"
+              style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              -
+            </button>
+            
+            <button 
+              className="btn btn-secondary btn-sm"
+              onClick={(e) => { e.stopPropagation(); shiftLeftKeys(); handleControlsActivity(); }}
+              title="向左移动键盘范围"
+              style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              ◀
+            </button>
+            <button 
+              className="btn btn-secondary btn-sm"
+              onClick={(e) => { e.stopPropagation(); shiftRightKeys(); handleControlsActivity(); }}
+              title="向右移动键盘范围"
+              style={{ width: '28px', height: '28px', padding: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              ▶
+            </button>
+            
+            <button 
+              className="btn btn-secondary btn-sm"
+              onClick={(e) => { e.stopPropagation(); resetKeys(); handleControlsActivity(); }}
+              title="恢复完整 88 键显示"
+              style={{ padding: '2px 8px', fontSize: '11px', height: '28px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.1)' }}
+            >
+              重置
+            </button>
+          </div>
         </div>
       )}
       {/* Top MIDI details and Chord Detection (Row 1) */}
@@ -1430,26 +1816,32 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
 
           {/* Visual Effects Settings Popover Container */}
           <div className="effects-settings-container" style={{ position: 'relative' }} ref={effectsPopoverRef}>
-            <button
-              className={`btn btn-sm ${Object.values(effectsConfig).some(Boolean) ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setShowEffectsPicker(!showEffectsPicker)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '20px',
-                fontSize: '11px',
-                fontWeight: '600',
-                backgroundColor: Object.values(effectsConfig).some(Boolean) ? 'var(--accent-color)' : 'var(--bg-input)',
-                color: Object.values(effectsConfig).some(Boolean) ? '#ffffff' : 'var(--text-secondary)',
-                border: '1px solid var(--border-color)',
-                boxShadow: Object.values(effectsConfig).some(Boolean) ? '0 0 10px rgba(99, 102, 241, 0.3)' : 'none',
-                transition: 'all var(--transition-normal)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              <span>✨ 特效设置</span>
-            </button>
+            {(() => {
+              const VISUAL_EFFECT_KEYS = ['bubbles', 'waterCurrent', 'loveLetter', 'keyBlast', 'barBreathing', 'velocityColoring', 'whiteKeysDim'];
+              const hasActiveEffect = VISUAL_EFFECT_KEYS.some(k => effectsConfig[k]);
+              return (
+                <button
+                  className={`btn btn-sm ${hasActiveEffect ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setShowEffectsPicker(!showEffectsPicker)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    backgroundColor: hasActiveEffect ? 'var(--accent-color)' : 'var(--bg-input)',
+                    color: hasActiveEffect ? '#ffffff' : 'var(--text-secondary)',
+                    border: '1px solid var(--border-color)',
+                    boxShadow: hasActiveEffect ? '0 0 10px rgba(99, 102, 241, 0.3)' : 'none',
+                    transition: 'all var(--transition-normal)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <span>✨ 特效设置</span>
+                </button>
+              );
+            })()}
 
             {showEffectsPicker && (
               <div 
@@ -1457,7 +1849,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                 style={{
                   position: 'absolute',
                   top: '100%',
-                  left: '0',
+                  right: '0',
                   marginTop: '8px',
                   width: '220px',
                   backgroundColor: 'rgba(20, 24, 33, 0.95)',
@@ -1524,6 +1916,16 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                     style={{ cursor: 'pointer' }}
                   />
                   <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>长条呼吸灯 (Breathing Bars)</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
+                  <input 
+                    type="checkbox"
+                    checked={!!effectsConfig.whiteKeysDim}
+                    onChange={() => setEffectsConfig(prev => ({ ...prev, whiteKeysDim: !prev.whiteKeysDim }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '12px', color: 'var(--text-primary)' }}>黑白键色</span>
                 </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 0' }}>
@@ -1598,7 +2000,7 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                 style={{
                   position: 'absolute',
                   top: '100%',
-                  left: '0',
+                  right: '0',
                   marginTop: '8px',
                   width: '240px',
                   backgroundColor: 'rgba(20, 24, 33, 0.95)',
@@ -1650,12 +2052,49 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
 
                 {customColorsEnabled && (
                   <>
+                    {/* 中央C双色开关 */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>中央C双色</span>
+                      <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={customColorSplitC}
+                          onChange={(e) => setCustomColorSplitC(e.target.checked)}
+                          style={{ opacity: 0, width: 0, height: 0 }}
+                        />
+                        <span style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: customColorSplitC ? 'var(--accent-color)' : '#475569', transition: '0.3s', borderRadius: '20px' }}>
+                          <span style={{ position: 'absolute', content: '""', height: '14px', width: '14px', left: customColorSplitC ? '18px' : '3px', bottom: '3px', backgroundColor: 'white', transition: '0.3s', borderRadius: '50%' }} />
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* 黑白键色Plus开关：中央C双色已开时禁用 */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '8px', opacity: customColorSplitC ? 0.4 : 1, pointerEvents: customColorSplitC ? 'none' : 'auto' }}>
+                      <span style={{ fontSize: '11px', color: customColorSplitC ? 'var(--text-muted)' : 'var(--text-secondary)' }}>
+                        黑白键色Plus
+                        {customColorSplitC && <span style={{ fontSize: '9px', marginLeft: '4px', color: '#ef4444' }}>需先关闭中央C双色</span>}
+                      </span>
+                      <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
+                        <input 
+                          type="checkbox"
+                          checked={customColorBlackWhitePlus}
+                          disabled={customColorSplitC}
+                          onChange={(e) => setCustomColorBlackWhitePlus(e.target.checked)}
+                          style={{ opacity: 0, width: 0, height: 0 }}
+                        />
+                        <span style={{ position: 'absolute', cursor: customColorSplitC ? 'not-allowed' : 'pointer', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: customColorBlackWhitePlus ? 'var(--accent-color)' : '#475569', transition: '0.3s', borderRadius: '20px' }}>
+                          <span style={{ position: 'absolute', content: '""', height: '14px', width: '14px', left: customColorBlackWhitePlus ? '18px' : '3px', bottom: '3px', backgroundColor: 'white', transition: '0.3s', borderRadius: '50%' }} />
+                        </span>
+                      </label>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '8px', opacity: (customColorSplitC || customColorBlackWhitePlus) ? 0.5 : 1, pointerEvents: (customColorSplitC || customColorBlackWhitePlus) ? 'none' : 'auto' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>渐变显示</span>
                       <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
                         <input 
                           type="checkbox" 
                           checked={customColorGradient}
+                          disabled={customColorSplitC || customColorBlackWhitePlus}
                           onChange={(e) => setCustomColorGradient(e.target.checked)}
                           style={{ opacity: 0, width: 0, height: 0 }}
                         />
@@ -1685,155 +2124,185 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
                       </label>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>配色方案 (最多5种)</span>
-                      
-                      {/* Color 1 */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <input 
-                            type="checkbox"
-                            checked={customColor1Enabled}
-                            onChange={() => handleToggleColorEnabled(1, customColor1Enabled)}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span style={{ fontSize: '11px', color: customColor1Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>颜色 1</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor1Enabled ? 1 : 0.5 }}>
-                            <input 
-                              type="color" 
-                              value={customColor1}
-                              disabled={!customColor1Enabled}
-                              onChange={(e) => setCustomColor1(e.target.value)}
-                              className="color-picker-input"
-                            />
+                    {/* ── 动态配色面板 ── */}
+                    {customColorBlackWhitePlus && customColorSplitC ? (
+                      /* 模式三：黑白键色Plus + 中央C双色 → 4区分色面板 */
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>4区分色配置</span>
+
+                        {/* 中央C及以上区域 */}
+                        <div style={{ backgroundColor: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '6px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <span style={{ fontSize: '10px', fontWeight: '600', color: 'var(--accent-color)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>🎹 中央C 及以上</span>
+                          {/* 白键色（高音区） */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>白键颜色</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px' }}>
+                                <input type="color" value={customColor1} onChange={(e) => setCustomColor1(e.target.value)} className="color-picker-input" />
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{customColor1.toUpperCase()}</span>
+                            </div>
                           </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor1Enabled ? 1 : 0.5 }}>{customColor1.toUpperCase()}</span>
+                          {/* 黑键色（高音区） */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>黑键颜色</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px' }}>
+                                <input type="color" value={customColor2} onChange={(e) => setCustomColor2(e.target.value)} className="color-picker-input" />
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{customColor2.toUpperCase()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 中央C以下区域 */}
+                        <div style={{ backgroundColor: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '6px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <span style={{ fontSize: '10px', fontWeight: '600', color: '#10b981', letterSpacing: '0.5px', textTransform: 'uppercase' }}>🎹 中央C 以下</span>
+                          {/* 白键色（低音区） */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>白键颜色</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px' }}>
+                                <input type="color" value={customColor3} onChange={(e) => setCustomColor3(e.target.value)} className="color-picker-input" />
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{customColor3.toUpperCase()}</span>
+                            </div>
+                          </div>
+                          {/* 黑键色（低音区） */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>黑键颜色</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px' }}>
+                                <input type="color" value={customColor4} onChange={(e) => setCustomColor4(e.target.value)} className="color-picker-input" />
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{customColor4.toUpperCase()}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-
-                      {/* Color 2 */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <input 
-                            type="checkbox"
-                            checked={customColor2Enabled}
-                            onChange={() => handleToggleColorEnabled(2, customColor2Enabled)}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span style={{ fontSize: '11px', color: customColor2Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>颜色 2</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor2Enabled ? 1 : 0.5 }}>
-                            <input 
-                              type="color" 
-                              value={customColor2}
-                              disabled={!customColor2Enabled}
-                              onChange={(e) => setCustomColor2(e.target.value)}
-                              className="color-picker-input"
-                            />
+                    ) : customColorBlackWhitePlus ? (
+                      /* 模式二：仅黑白键色Plus → 2色面板 */
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>黑白键分色配置</span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>⬜ 白键颜色</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px' }}>
+                              <input type="color" value={customColor1} onChange={(e) => setCustomColor1(e.target.value)} className="color-picker-input" />
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{customColor1.toUpperCase()}</span>
                           </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor2Enabled ? 1 : 0.5 }}>{customColor2.toUpperCase()}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-primary)' }}>⬛ 黑键颜色</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px' }}>
+                              <input type="color" value={customColor2} onChange={(e) => setCustomColor2(e.target.value)} className="color-picker-input" />
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{customColor2.toUpperCase()}</span>
+                          </div>
                         </div>
                       </div>
-
-                      {/* Color 3 */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <input 
-                            type="checkbox"
-                            checked={customColor3Enabled}
-                            onChange={() => handleToggleColorEnabled(3, customColor3Enabled)}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span style={{ fontSize: '11px', color: customColor3Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>颜色 3</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor3Enabled ? 1 : 0.5 }}>
-                            <input 
-                              type="color" 
-                              value={customColor3}
-                              disabled={!customColor3Enabled}
-                              onChange={(e) => setCustomColor3(e.target.value)}
-                              className="color-picker-input"
-                            />
+                    ) : (
+                      /* 模式一：常规 5 色方案 */
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>
+                          {customColorSplitC ? '配色方案 (中央C双色)' : '配色方案 (最多5种)'}
+                        </span>
+                        {/* Color 1 */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <input type="checkbox" checked={customColor1Enabled} onChange={() => handleToggleColorEnabled(1, customColor1Enabled)} style={{ cursor: 'pointer' }} />
+                            <span style={{ fontSize: '11px', color: customColor1Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                              {customColorSplitC ? '颜色 1 (中央C及以上)' : '颜色 1'}
+                            </span>
                           </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor3Enabled ? 1 : 0.5 }}>{customColor3.toUpperCase()}</span>
-                        </div>
-                      </div>
-
-                      {/* Color 4 */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <input 
-                            type="checkbox"
-                            checked={customColor4Enabled}
-                            onChange={() => handleToggleColorEnabled(4, customColor4Enabled)}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span style={{ fontSize: '11px', color: customColor4Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>颜色 4</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor4Enabled ? 1 : 0.5 }}>
-                            <input 
-                              type="color" 
-                              value={customColor4}
-                              disabled={!customColor4Enabled}
-                              onChange={(e) => setCustomColor4(e.target.value)}
-                              className="color-picker-input"
-                            />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor1Enabled ? 1 : 0.5 }}>
+                              <input type="color" value={customColor1} disabled={!customColor1Enabled} onChange={(e) => setCustomColor1(e.target.value)} className="color-picker-input" />
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor1Enabled ? 1 : 0.5 }}>{customColor1.toUpperCase()}</span>
                           </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor4Enabled ? 1 : 0.5 }}>{customColor4.toUpperCase()}</span>
                         </div>
-                      </div>
-
-                      {/* Color 5 */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <input 
-                            type="checkbox"
-                            checked={customColor5Enabled}
-                            onChange={() => handleToggleColorEnabled(5, customColor5Enabled)}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span style={{ fontSize: '11px', color: customColor5Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>颜色 5</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor5Enabled ? 1 : 0.5 }}>
-                            <input 
-                              type="color" 
-                              value={customColor5}
-                              disabled={!customColor5Enabled}
-                              onChange={(e) => setCustomColor5(e.target.value)}
-                              className="color-picker-input"
-                            />
+                        {/* Color 2 */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <input type="checkbox" checked={customColor2Enabled} onChange={() => handleToggleColorEnabled(2, customColor2Enabled)} style={{ cursor: 'pointer' }} />
+                            <span style={{ fontSize: '11px', color: customColor2Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                              {customColorSplitC ? '颜色 2 (中央C以下)' : '颜色 2'}
+                            </span>
                           </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor5Enabled ? 1 : 0.5 }}>{customColor5.toUpperCase()}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor2Enabled ? 1 : 0.5 }}>
+                              <input type="color" value={customColor2} disabled={!customColor2Enabled} onChange={(e) => setCustomColor2(e.target.value)} className="color-picker-input" />
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor2Enabled ? 1 : 0.5 }}>{customColor2.toUpperCase()}</span>
+                          </div>
                         </div>
+                        {/* Color 3（中央C双色下隐藏） */}
+                        {!customColorSplitC && (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <input type="checkbox" checked={customColor3Enabled} onChange={() => handleToggleColorEnabled(3, customColor3Enabled)} style={{ cursor: 'pointer' }} />
+                              <span style={{ fontSize: '11px', color: customColor3Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>颜色 3</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor3Enabled ? 1 : 0.5 }}>
+                                <input type="color" value={customColor3} disabled={!customColor3Enabled} onChange={(e) => setCustomColor3(e.target.value)} className="color-picker-input" />
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor3Enabled ? 1 : 0.5 }}>{customColor3.toUpperCase()}</span>
+                            </div>
+                          </div>
+                        )}
+                        {/* Color 4（中央C双色下隐藏） */}
+                        {!customColorSplitC && (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <input type="checkbox" checked={customColor4Enabled} onChange={() => handleToggleColorEnabled(4, customColor4Enabled)} style={{ cursor: 'pointer' }} />
+                              <span style={{ fontSize: '11px', color: customColor4Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>颜色 4</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor4Enabled ? 1 : 0.5 }}>
+                                <input type="color" value={customColor4} disabled={!customColor4Enabled} onChange={(e) => setCustomColor4(e.target.value)} className="color-picker-input" />
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor4Enabled ? 1 : 0.5 }}>{customColor4.toUpperCase()}</span>
+                            </div>
+                          </div>
+                        )}
+                        {/* Color 5（中央C双色下隐藏） */}
+                        {!customColorSplitC && (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <input type="checkbox" checked={customColor5Enabled} onChange={() => handleToggleColorEnabled(5, customColor5Enabled)} style={{ cursor: 'pointer' }} />
+                              <span style={{ fontSize: '11px', color: customColor5Enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>颜色 5</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <div className="color-picker-input-wrapper" style={{ width: '24px', height: '24px', opacity: customColor5Enabled ? 1 : 0.5 }}>
+                                <input type="color" value={customColor5} disabled={!customColor5Enabled} onChange={(e) => setCustomColor5(e.target.value)} className="color-picker-input" />
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace', opacity: customColor5Enabled ? 1 : 0.5 }}>{customColor5.toUpperCase()}</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    )}
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+                    {/* 色彩过渡时长（仅常规模式下可用） */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid var(--border-color)', paddingTop: '8px', opacity: (customColorSplitC || customColorBlackWhitePlus) ? 0.5 : 1, pointerEvents: (customColorSplitC || customColorBlackWhitePlus) ? 'none' : 'auto' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
                         <span>色彩过渡时长</span>
                         <span style={{ color: 'var(--accent-color)', fontWeight: 'bold' }}>{customColorDuration.toFixed(1)} 秒</span>
                       </div>
-                      <input 
+                      <input
                         type="range"
                         min={0.5}
                         max={60.0}
                         step={0.5}
                         value={customColorDuration}
+                        disabled={customColorSplitC || customColorBlackWhitePlus}
                         onChange={(e) => setCustomColorDuration(parseFloat(e.target.value))}
                         className="control-range-input"
-                        style={{
-                          width: '100%',
-                          height: '4px',
-                          borderRadius: '2px',
-                          outline: 'none',
-                          cursor: 'pointer'
-                        }}
+                        style={{ width: '100%', height: '4px', borderRadius: '2px', outline: 'none', cursor: 'pointer' }}
                       />
                     </div>
                   </>
@@ -1845,16 +2314,157 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
 
           </div>
 
-        {(activeNotes.length > 0 || liveNotes.length > 0) && (
-          <button className="btn btn-secondary btn-sm" onClick={clearKeyboard}>清除</button>
-        )}
+
       </div>
       )}
 
       {!focusMode && (
         <div className="chord-display-hero" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '10px 24px' }}>
-          <div className="chord-name-large" style={{ textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {detectedChord ? detectedChord : '检测和弦...'}
+
+          {/* ── 和弦检测区 ── */}
+          <div
+            style={{ position: 'relative', textAlign: 'left', minWidth: '180px' }}
+            onMouseEnter={handleChordAreaMouseEnter}
+            onMouseLeave={handleChordAreaMouseLeave}
+          >
+            {/* 触发热区标注（调试用，实际透明） */}
+            {!chordDetectionEnabled && (
+              /* 未开启：始终显示开关按钮 */
+              <button
+                onClick={() => setChordDetectionEnabled(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  background: 'rgba(99,102,241,0.08)',
+                  border: '1px dashed rgba(99,102,241,0.35)',
+                  borderRadius: '20px',
+                  padding: '4px 12px',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)',
+                  fontSize: '11px',
+                  transition: 'all 0.2s ease',
+                }}
+                title="点击开启和弦检测"
+              >
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#475569', flexShrink: 0, display: 'inline-block' }} />
+                和弦检测（已关闭）
+              </button>
+            )}
+
+            {chordDetectionEnabled && (() => {
+              const isPlaying = mergedActiveNotes.length > 0;
+
+              return (
+                <>
+                  {/* 和弦名称 + 乐理按钮（有演奏时显示，过渡动效） */}
+                  <div
+                    ref={chordTheoryRef}
+                    style={{
+                      position: 'relative',
+                      overflow: 'visible',
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      opacity: isPlaying ? 1 : 0,
+                      transform: isPlaying ? 'translateY(0)' : 'translateY(4px)',
+                      transition: 'opacity 0.3s ease, transform 0.3s ease',
+                      pointerEvents: isPlaying ? 'auto' : 'none',
+                    }}
+                    onClick={() => setShowChordTheory(!showChordTheory)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="chord-name-large" style={{ fontSize: 'inherit' }}>
+                        {detectedChord && detectedChord !== '检测和弦...' ? detectedChord : '···'}
+                      </span>
+                      {detectedChord && detectedChord !== '未知和弦 (Unknown)' && detectedChord !== '检测和弦...' && (
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '3px', padding: '1px 4px', lineHeight: '1.2' }}>乐理</span>
+                      )}
+                    </div>
+
+                    {showChordTheory && detectedChord && detectedChord !== '未知和弦 (Unknown)' && detectedChord !== '检测和弦...' && (
+                      <div
+                        className="chord-theory-card"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          position: 'absolute',
+                          bottom: '130%',
+                          left: '0',
+                          width: '360px',
+                          backgroundColor: 'rgba(20, 24, 33, 0.95)',
+                          backdropFilter: 'blur(16px)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '10px',
+                          padding: '14px',
+                          boxShadow: '0 -8px 24px rgba(0,0,0,0.5)',
+                          zIndex: 200,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '10px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--accent-color)' }}>{detectedChord}</span>
+                          {chordDetails.degree && (
+                            <span style={{ fontSize: '10px', fontWeight: 'bold', backgroundColor: 'rgba(99, 102, 241, 0.25)', color: '#818cf8', padding: '2px 6px', borderRadius: '4px' }}>
+                              级数: {chordDetails.degree}
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>和弦类型</span>
+                            <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{chordDetails.typeName}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>音符构成</span>
+                            <span style={{ color: 'var(--accent-color)', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                              {chordDetails.notes.join(' - ')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: '4px' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '6px', textAlign: 'center' }}>微型钢琴指法图 (C3 - B4)</div>
+                          {renderMiniPianoSvg(chordDetails.notes)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* hover 时显示的关闭开关（无演奏时） */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0, left: 0,
+                      opacity: (!isPlaying && showChordArea) ? 1 : 0,
+                      transform: (!isPlaying && showChordArea) ? 'translateY(0)' : 'translateY(4px)',
+                      transition: 'opacity 0.25s ease, transform 0.25s ease',
+                      pointerEvents: (!isPlaying && showChordArea) ? 'auto' : 'none',
+                    }}
+                  >
+                    <button
+                      onClick={() => setChordDetectionEnabled(false)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        background: 'rgba(99,102,241,0.12)',
+                        border: '1px solid rgba(99,102,241,0.4)',
+                        borderRadius: '20px',
+                        padding: '4px 12px',
+                        cursor: 'pointer',
+                        color: 'var(--accent-color)',
+                        fontSize: '11px',
+                        transition: 'all 0.2s ease',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title="点击关闭和弦检测"
+                    >
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6366f1', flexShrink: 0, display: 'inline-block', boxShadow: '0 0 6px rgba(99,102,241,0.6)' }} />
+                      和弦检测（已开启）
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
 
           {/* Combined Sliders in the Middle */}
@@ -1898,17 +2508,19 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
             </div>
           </div>
 
-          <div className="active-notes-list" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', overflow: 'hidden' }}>
-            {mergedActiveNotes.length > 0 ? (
-              mergedActiveNotes.map(m => (
-                <span key={m} className="note-pill">
-                  {Midi.midiToNoteName(m)}
-                </span>
-              ))
-            ) : (
-              <span className="placeholder-text">等待输入...</span>
-            )}
-          </div>
+          {chordDetectionEnabled && (
+            <div className="active-notes-list" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', overflow: 'hidden' }}>
+              {mergedActiveNotes.length > 0 ? (
+                mergedActiveNotes.map(m => (
+                  <span key={m} className="note-pill">
+                    {Midi.midiToNoteName(m)}
+                  </span>
+                ))
+              ) : (
+                <span className="placeholder-text">等待输入...</span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -2017,6 +2629,8 @@ export default function MidiKeyboard({ xmlContent, setXmlContent, showMidiScore,
           showNoteNames={showNoteNames}
           customColorsEnabled={customColorsEnabled}
           customColorGradient={customColorGradient}
+          customColorSplitC={customColorSplitC}
+          customColorBlackWhitePlus={customColorBlackWhitePlus}
           customColor1={customColor1}
           customColor2={customColor2}
           customColor3={customColor3}

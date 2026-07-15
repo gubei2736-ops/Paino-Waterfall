@@ -174,6 +174,16 @@ export default function ScoreViewer({ xmlContent, zoom, playbackTime, isPlaying,
           if (count > 800) break; // Infinite loop guard
         }
       }
+
+      // Auto smooth scroll to cursor element
+      const cursorEl = osmd.cursor.cursorElement;
+      if (cursorEl && isPlaying) {
+        cursorEl.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'nearest'
+        });
+      }
     } catch (e) {
       console.error("Error in ScoreViewer cursor playback sync:", e);
     }

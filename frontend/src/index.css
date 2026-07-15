@@ -1269,6 +1269,21 @@ select:focus {
 
 .focus-mode .workspace .midi-workspace-area {
   height: 100vh;
+  padding: 0;
+  background-color: #0b0c10;
+}
+
+.focus-mode .midi-keyboard-full-container {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  gap: 0;
+  background-color: #0b0c10;
+}
+
+.focus-mode .visualizer-canvas-wrapper {
+  border: none;
+  border-radius: 0;
 }
 
 .focus-mode-btn {
