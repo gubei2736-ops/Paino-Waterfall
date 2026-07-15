@@ -1,6 +1,7 @@
 ﻿# 🎹 钢琴瀑布流与智能记谱系统 (Piano Waterfall)
 
 这是一个集成了**钢琴瀑布流可视化**、**五线谱交互播放**、**MIDI/电脑键盘演奏**以及**智能录音转译记谱**的专业级网页应用。系统提供了精美的毛玻璃暗黑界面、沉浸式空间混响声效以及为教学练习量身定制的多种辅助模式。
+<img width="2538" height="1283" alt="image" src="https://github.com/user-attachments/assets/9764f907-ab8c-4f49-bdce-a6fbcb40f61e" />
 
 ---
 
