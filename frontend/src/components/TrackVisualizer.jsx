@@ -267,21 +267,6 @@ export default function TrackVisualizer({
 
       const noteBarsOpacity = (effectsConfig && effectsConfig.noteBarsOpacity !== undefined) ? effectsConfig.noteBarsOpacity : 1.0;
 
-      // Pre-declare custom color variables to avoid TDZ (Temporal Dead Zone) in nested draw functions
-      let activeCustomColor = null;
-      const getNoteColorPair = (midi, trackId) => {
-        if (customColorsEnabled) {
-          if (customColorSplitMode) {
-            const leftCol = customColor1 || '#ff007f';
-            const rightCol = customColor2 || '#7f00ff';
-            const col = midi < 60 ? leftCol : rightCol;
-            return { start: col, end: col };
-          }
-          return activeCustomColor || { start: customColor1, end: customColor2 };
-        }
-        return getTrackColor(trackId);
-      };
-
       const drawPlaybackNote = (note, T) => {
         const t_start = note.time;
         const t_end = note.time + note.duration;
@@ -528,7 +513,7 @@ export default function TrackVisualizer({
 
 
       // Calculate dynamic custom color ratio if enabled
-      activeCustomColor = null;
+      let activeCustomColor = null;
       if (customColorsEnabled) {
         const activeColors = [];
         if (customColor1Enabled) activeColors.push(customColor1);
@@ -578,6 +563,20 @@ export default function TrackVisualizer({
           }
         }
       }
+
+      // Color selector based on custom color mode & midi pitch
+      const getNoteColorPair = (midi, trackId) => {
+        if (customColorsEnabled) {
+          if (customColorSplitMode) {
+            const leftCol = customColor1 || '#ff007f';
+            const rightCol = customColor2 || '#7f00ff';
+            const col = midi < 60 ? leftCol : rightCol;
+            return { start: col, end: col };
+          }
+          return activeCustomColor || { start: customColor1, end: customColor2 };
+        }
+        return getTrackColor(trackId);
+      };
 
       // 1. Draw piano roll background columns
       visibleKeys.forEach((key) => {
